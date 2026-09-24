@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Solar Bridge</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #fff; --text: #1d2330; --muted: #6b7384; --line: #d9dde5;
+    --solar: #e0a100; --grid: #5b6b86; --battery: #2e9d5b; --home: #3a7bd5; --bad: #c8403a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #12151b; --card: #1b2029; --text: #e7eaf0; --muted: #98a0b0; --line: #313846;
+      --solar: #f2b92b; --grid: #8d9bb5; --battery: #43c079; --home: #5b9bf0; --bad: #ef6a63; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 720px; margin: 0 auto; padding: 16px; }
+  header { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+  h1 { font-size: 20px; margin: 4px 0 12px; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+  svg { width: 100%; height: auto; display: block; }
+  .node circle { fill: var(--card); stroke-width: 3; }
+  .node text { fill: var(--text); text-anchor: middle; }
+  .node .val { font-size: 15px; font-weight: 600; }
+  .node .lbl { font-size: 12px; fill: var(--muted); }
+  .flow { stroke-width: 4; stroke-linecap: round; fill: none; opacity: .25; }
+  .flow.on { opacity: 1; stroke-dasharray: 2 12; animation: dash 1s linear infinite; }
+  .flow.rev { animation-direction: reverse; }
+  @keyframes dash { to { stroke-dashoffset: -14; } }
+  @media (prefers-reduced-motion: reduce) { .flow.on { animation: none; stroke-dasharray: none; } }
+  h2 { font-size: 15px; margin: 0 0 8px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  td { padding: 6px 0; border-top: 1px solid var(--line); vertical-align: top; }
+  td:last-child { text-align: right; white-space: nowrap; padding-left: 12px; }
+  .ok::before { content: "● "; color: var(--battery); }
+  .bad::before { content: "● "; color: var(--bad); }
+  .err { color: var(--bad); font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+  <header><h1 id="title">Solar Bridge</h1><span class="muted" id="updated">connecting…</span></header>
+
+  <section class="card" aria-label="Power flow">
+    <svg viewBox="0 0 400 360" role="img" aria-labelledby="flowdesc">
+      <desc id="flowdesc">Live power flow between solar, grid, battery and home</desc>
+      <path id="f-solar" class="flow" stroke="var(--solar)" d="M200 92 V172"/>
+      <path id="f-grid" class="flow" stroke="var(--grid)" d="M102 172 H200"/>
+      <path id="f-battery" class="flow" stroke="var(--battery)" d="M200 252 V172"/>
+      <path id="f-home" class="flow" stroke="var(--home)" d="M200 172 H298"/>
+      <circle cx="200" cy="172" r="5" fill="var(--muted)"/>
+      <g class="node"><circle cx="200" cy="50" r="40" stroke="var(--solar)"/>
+        <text x="200" y="55" class="val" id="v-pv">—</text><text x="262" y="55" class="lbl" text-anchor="start">Solar</text></g>
+      <g class="node"><circle cx="58" cy="172" r="40" stroke="var(--grid)"/>
+        <text x="58" y="177" class="val" id="v-grid">—</text><text x="58" y="232" class="lbl" id="l-grid">Grid</text></g>
+      <g class="node"><circle cx="200" cy="294" r="40" stroke="var(--battery)"/>
+        <text x="200" y="299" class="val" id="v-battery">—</text>
+        <text x="200" y="352" class="lbl" id="l-battery">Battery</text></g>
+      <g class="node"><circle cx="342" cy="172" r="40" stroke="var(--home)"/>
+        <text x="342" y="177" class="val" id="v-load">—</text><text x="342" y="232" class="lbl">Home</text></g>
+    </svg>
+  </section>
+
+  <section class="card"><h2>Fronius devices</h2><table id="devices"></table></section>
+  <section class="card"><h2>Data sources</h2><table id="sources"></table></section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const kw = (w) => w == null ? "—" : (Math.abs(w) >= 1000 ? (w / 1000).toFixed(1) + " kW" : Math.round(w) + " W");
+const ago = (s) => s == null ? "never" : s < 60 ? Math.round(s) + " s ago" : Math.round(s / 60) + " min ago";
+const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+
+// towards: true when power flows from the node into the hub
+function flow(id, watts, towards) {
+  const el = $(id), on = watts != null && Math.abs(watts) > 20;
+  el.classList.toggle("on", on);
+  el.classList.toggle("rev", on && !towards);
+}
+
+function render(s) {
+  const v = s.values || {};
+  $("title").textContent = s.name || "Solar Bridge";
+  document.title = (s.name || "Solar Bridge") + " · power flow";
+  $("updated").textContent = s.updated ? "updated " + new Date(s.updated).toLocaleTimeString() : "no data yet";
+  $("v-pv").textContent = kw(v.pv);
+  $("v-grid").textContent = kw(v.grid == null ? null : Math.abs(v.grid));
+  $("l-grid").textContent = v.grid == null ? "Grid" : v.grid >= 0 ? "Grid · importing" : "Grid · exporting";
+  $("v-battery").textContent = kw(v.battery == null ? null : Math.abs(v.battery));
+  $("l-battery").textContent = (v.battery == null ? "Battery" : v.battery >= 0 ? "Battery · discharging" : "Battery · charging")
+    + (v.soc == null ? "" : " · " + Math.round(v.soc) + "%");
+  $("v-load").textContent = kw(v.load);
+  flow("f-solar", v.pv, true);
+  flow("f-grid", v.grid, v.grid >= 0);
+  flow("f-battery", v.battery, v.battery >= 0);
+  flow("f-home", v.load, false);
+
+  const rows = [];
+  for (const [ip, c] of Object.entries(s.clients || {}))
+    rows.push(`<tr><td class="${c.age_s < 60 ? "ok" : "bad"}">Wattpilot / Solar API client ${esc(ip)}</td><td>${ago(c.age_s)}</td></tr>`);
+  if (!Object.keys(s.clients || {}).length)
+    rows.push(`<tr><td class="bad">No Wattpilot has polled yet</td><td></td></tr>`);
+  for (const m of s.meters || [])
+    rows.push(`<tr><td class="${m.last_read_s != null && m.last_read_s < 60 ? "ok" : "bad"}">Meter ${esc(m.name)} · unit ${m.unit_id} · ${esc(m.role)}<br><span class="muted">${kw(m.power)} on the wire</span></td><td>read ${ago(m.last_read_s)}</td></tr>`);
+  $("devices").innerHTML = rows.join("");
+
+  $("sources").innerHTML = Object.entries(s.sources || {}).map(([name, src]) =>
+    `<tr><td class="${src.ok ? "ok" : "bad"}">${esc(name)} <span class="muted">(${esc(src.type)})</span>` +
+    (src.error ? `<div class="err">${esc(src.error)}</div>` : "") +
+    `</td><td>${ago(src.age_s)}</td></tr>`).join("");
+}
+
+async function tick() {
+  try {
+    const r = await fetch("api/state", {cache: "no-store"});
+    render(await r.json());
+  } catch (e) {
+    $("updated").textContent = "connection lost — retrying";
+  }
+}
+tick();
+setInterval(tick, 2000);
+</script>
+</body>
+</html>

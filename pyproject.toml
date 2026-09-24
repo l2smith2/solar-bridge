@@ -1,0 +1,40 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "solar-bridge"
+dynamic = ["version"]
+description = "Fronius-compatible emulation (Solar API, Smart Meter IP, mDNS) for non-Fronius solar, battery and meter hardware"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11"
+authors = [{ name = "l2smith2" }]
+# The core package (solar_bridge.core) needs only aiohttp, with a loose range,
+# so the Home Assistant integration can depend on it without clashing with HA's pins.
+dependencies = ["aiohttp>=3.9"]
+
+[project.optional-dependencies]
+app = ["PyYAML>=6", "aiomqtt>=2", "pypowerwall>=0.10"]
+test = ["pytest>=8", "pytest-asyncio>=0.23", "PyYAML>=6"]
+
+[project.scripts]
+solar-bridge = "solar_bridge.app.__main__:main"
+
+[project.urls]
+Homepage = "https://github.com/l2smith2/solar-bridge"
+
+[tool.hatch.version]
+path = "src/solar_bridge/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/solar_bridge"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"

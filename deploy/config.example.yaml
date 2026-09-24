@@ -1,0 +1,64 @@
+# Solar Bridge configuration — copy to /etc/solar-bridge/config.yaml and edit.
+# Test it with:  solar-bridge --config /etc/solar-bridge/config.yaml --check
+
+name: fronius-virtual        # mDNS hostname: web page at http://fronius-virtual.local
+display_name: MyHome         # shown when pairing the Wattpilot; also the serial number
+update_interval: 5           # seconds between reads
+wattpilot: true              # announce a virtual inverter for a Fronius Wattpilot
+
+grid:
+  phases: 1                  # 1 or 3
+  breaker_amps: 32           # the Wattpilot never draws more than this
+
+# ── Where readings come from ────────────────────────────────────────────────
+sources:
+  powerwall:                 # Tesla Powerwall 2 / + / 3 via pypowerwall
+    type: tesla
+    host: 192.168.1.50
+    password: "customer password"    # the gateway's customer login (Powerwall 2 / +)
+    email: you@example.com
+    timezone: Australia/Sydney
+    # gw_pwd: "..."                  # Powerwall 3 over the gateway Wi-Fi (TEDAPI)
+    # options: {}                    # anything else pypowerwall.Powerwall accepts
+
+  # shelly:                  # any JSON HTTP API
+  #   type: http_json
+  #   url: http://192.168.1.60/rpc/EM.GetStatus?id=0
+  #   fields:
+  #     grid: total_act_power
+
+  # broker:                  # MQTT
+  #   type: mqtt
+  #   host: 192.168.1.10
+  #   fields:
+  #     grid: home/grid/power
+  #     battery: {topic: home/battery, path: power}
+
+  # inverter:                # Modbus TCP, e.g. a SunSpec inverter
+  #   type: modbus
+  #   host: 192.168.1.40
+  #   unit: 1
+  #   fields:
+  #     pv: {address: 40083, type: int16, scale_register: 40084}
+
+# ── What they mean ──────────────────────────────────────────────────────────
+# Signs: grid + importing, pv + producing, battery + discharging, load + consuming.
+# Add invert: true to flip one, e.g.  battery: {from: powerwall.battery, invert: true}
+# load is optional: it is worked out as grid + pv + battery when not given.
+values:
+  grid: powerwall.grid
+  pv: powerwall.solar
+  battery: powerwall.battery
+  soc: powerwall.soc
+  load: powerwall.load
+
+# ── Smart Meter IPs for a real Fronius inverter (optional, Modbus TCP) ───────
+# Add each on the Fronius as a Smart Meter IP at this device's IP with the same unit ID.
+# role: grid (feed-in point), generator (e.g. an AC-coupled battery), load (consumption path)
+meters:
+  - {name: grid, unit_id: 240, value: grid, role: grid}
+  - {name: ac-battery, unit_id: 241, value: battery, role: generator}
+
+# data_dir: /var/lib/solar-bridge   # where energy totals are kept
+# http_port: 80                     # the Wattpilot expects 80
+# modbus_port: 502                  # Fronius expects 502
