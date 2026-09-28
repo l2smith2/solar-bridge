@@ -65,7 +65,9 @@ values:
 # Map a generator / AC input as grid if you have one, and optionally frequency (Hz).
 # off_grid:
 #   enabled: true
-#   car_start_soc: 90      # battery first below this…
+#   mode: share            # share: the car takes battery charging; assist: only held-back solar;
+#                          # wattpilot: the Wattpilot sees the battery (its Boost etc. apply)
+#   car_start_soc: 90      # share: battery first below this…
 #   car_stop_soc: 80       # …and again once it drops below this
 #   throttle_hz: 50.2      # solar held back above this (default: nominal + 0.2 Hz)
 #   full_soc: 98           # without a frequency: full battery + solar producing = held back

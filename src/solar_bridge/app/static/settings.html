@@ -253,7 +253,8 @@ async function load() {
     name: raw.name || "fronius-virtual", display_name: raw.display_name || "",
     update_interval: raw.update_interval ?? 5, wattpilot: raw.wattpilot ?? true,
     grid: {phases: 1, breaker_amps: 32, ...(raw.grid || {})},
-    off_grid: {enabled: false, car_start_soc: 90, car_stop_soc: 80, full_soc: 98, offer_w: 1500, ...(raw.off_grid || {})},
+    off_grid: {enabled: false, mode: "share", car_start_soc: 90, car_stop_soc: 80, full_soc: 98, offer_w: 1500,
+               ...(raw.off_grid || {})},
     sources: raw.sources || {}, values: {}, meters: raw.meters || [],
     ...(raw.http_port ? {http_port: raw.http_port} : {}), ...(raw.modbus_port ? {modbus_port: raw.modbus_port} : {}),
   };
@@ -543,16 +544,28 @@ function renderOffGrid() {
     onchange: (ev) => { og.enabled = ev.target.checked; renderOffGrid(); renderValues(); renderMeters(); }}),
     "Off grid — no grid connection");
   if (!og.enabled) return $("offgrid").replaceChildren(toggle);
+  const mode = og.mode || "share", share = mode === "share";
+  const MODES = {
+    share: ["Share: what would charge the battery, once it's charged enough",
+            "Battery charging reads as surplus for the car; discharging as import, so the car backs off."],
+    assist: ["Assist: only solar that is held back — the battery charges normally",
+             "The car only charges while solar is being held back, or the battery is full."],
+    wattpilot: ["The Wattpilot's battery settings (keeps Boost)",
+                "The Wattpilot sees your battery, so Charges from, Discharges until and Boost work as set in its app. " +
+                "Set Charges from to 100 % to keep the battery charging normally."],
+  };
   $("offgrid").replaceChildren(toggle, h("div", {class: "editor"},
     h("p", {class: "muted", style: "margin-top:0"},
-      "There is no export for the Wattpilot to follow, so it is shown a grid made up from your battery: ",
-      "charging reads as surplus for the car, discharging (or a generator) as import. When your battery inverter ",
-      "holds solar back, a little extra surplus is offered so the car can soak it up. ",
-      "In the Wattpilot app, use Eco mode (PV surplus)."),
+      "There is no export for the Wattpilot to follow, so it is shown a grid made up for it. A generator reads as ",
+      "import, so it never charges the car. When your battery inverter holds solar back, a little extra surplus is ",
+      "offered so the car can soak it up. In the Wattpilot app, use Eco mode (PV surplus)."),
+    field("The car may use", h("select", {onchange: (ev) => { og.mode = ev.target.value; renderOffGrid(); }},
+      Object.entries(MODES).map(([k, [label]]) => h("option", {value: k, selected: mode === k}, label))),
+      MODES[mode][1]),
     h("div", {class: "grid2"},
-      field("Car may charge from a battery charge of (%)", num(og, "car_start_soc", {min: 0, max: 100}),
-        "Below this the battery comes first."),
-      field("…until the battery drops below (%)", num(og, "car_stop_soc", {min: 0, max: 100})),
+      share ? field("Car may charge from a battery charge of (%)", num(og, "car_start_soc", {min: 0, max: 100}),
+        "Below this the battery comes first.") : null,
+      share ? field("…until the battery drops below (%)", num(og, "car_stop_soc", {min: 0, max: 100})) : null,
       field("Solar is held back above (Hz)", num(og, "throttle_hz", {min: 45, max: 65, step: 0.05, placeholder: "auto: 50.2 / 60.2"}),
         "Needs the AC frequency reading. Without one, a full battery with solar producing counts as held back."),
       field("Battery counts as full at (%)", num(og, "full_soc", {min: 50, max: 100})),

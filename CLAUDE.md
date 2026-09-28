@@ -48,10 +48,13 @@ confirmed on real hardware there).
 
 ## Off grid (`offgrid.py`)
 - `off_grid.enabled`: grid value optional (= generator / AC input), battery + soc required. The Wattpilot gets
-  P_Grid = generator + battery (charging = export) or, while the battery comes first (SOC hysteresis
-  car_start_soc/car_stop_soc), house load as import; minus offer_w while solar is held back (frequency ≥
+  (mode `share`) P_Grid = generator + battery (charging = export) or, while the battery comes first (SOC
+  hysteresis car_start_soc/car_stop_soc), house load as import; (mode `assist`) generator + max(battery, 0),
+  plus STEP_DOWN_W import while solar isn't held back, no SOC gate; (mode `wattpilot`) generator only, and
+  P_Akku/SOC are shown so its Charges from / Discharges until / Boost apply (battery discharge as import would
+  stop Boost). All: minus offer_w while solar is held back (frequency ≥
   throttle_hz, default nominal + 0.2; else SOC ≥ full_soc with PV ≥ 200 W). A discharge within 60 s of an offer
-  → no offers for 300 s. P_Akku/SOC are hidden from the Wattpilot (its own battery rules would double count);
+  → no offers for 300 s. share/assist hide P_Akku/SOC from the Wattpilot (its own battery rules would double count);
   `values`/meters/energy counters keep the real readings. Untested on a real Wattpilot off grid.
 - `frequency` is a value (Hz) like the others; not allowed as a Smart Meter IP power.
 

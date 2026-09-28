@@ -7,7 +7,7 @@ import pytest
 
 from solar_bridge.app.bridge import Bridge
 from solar_bridge.app.config import ConfigError, OffGridConfig, parse
-from solar_bridge.app.offgrid import BACKOFF_S, STOP_W, OffGridController
+from solar_bridge.app.offgrid import BACKOFF_S, STEP_DOWN_W, STOP_W, OffGridController
 
 
 class Clock:
@@ -84,6 +84,49 @@ def test_backs_off_when_an_offer_drains_the_battery() -> None:
     assert og.update(battery=0, soc=99, pv=2000).state == "offering"
 
 
+def test_assist_leaves_battery_charging_alone() -> None:
+    og, clock = _controller(mode="assist", offer_w=1500)
+    # solar not held back: the battery's charging is its own, and a charging car steps down
+    st = og.update(battery=-3000, soc=50, frequency=50.0)
+    assert (st.grid, st.state) == (STEP_DOWN_W, "battery_first")
+    # held back (the battery is taking all it can): only the held-back solar is offered
+    st = og.update(battery=-3000, soc=50, frequency=50.9)
+    assert (st.grid, st.state) == (-1500, "offering")  # no SOC gate: the battery isn't short-changed
+    # discharging is import, as ever, and an offer that caused it pauses offers
+    clock.now += 10
+    assert og.update(battery=700, soc=50, frequency=50.9).grid == 700
+    assert og.update(battery=0, soc=50, frequency=50.9).state == "backing_off"
+
+    # without a frequency reading: only a full battery with solar producing
+    og, _ = _controller(mode="assist", full_soc=98)
+    assert og.update(battery=-2000, soc=90, pv=4000).grid == STEP_DOWN_W
+    assert og.update(battery=-50, soc=99, pv=4000).grid == -1500
+    assert og.update(battery=0, soc=99, pv=0).grid == STEP_DOWN_W  # night
+    assert og.update(battery=-1000, soc=99, pv=4000, generator=2500).grid == 2500  # generator: import
+
+
+def test_wattpilot_mode_leaves_the_battery_to_the_wattpilot() -> None:
+    og, _ = _controller(mode="wattpilot", offer_w=1500)
+    st = og.update(battery=-3000, soc=50, frequency=50.0)
+    assert (st.grid, st.state) == (0, "surplus")  # its Charges from decides about battery charging
+    assert og.update(battery=2500, soc=70, frequency=50.0).grid == 0  # Boost: discharging isn't import
+    assert og.update(battery=-100, soc=70, frequency=50.9).grid == -1500  # held-back solar is still offered
+    assert og.update(battery=0, soc=70, generator=2000).grid == 2000
+
+
+def test_bridge_shows_the_battery_only_in_wattpilot_mode(tmp_path: Path) -> None:
+    readings = {"pv": 3000.0, "bat": 2000.0, "soc": 80.0, "gen": 0.0, "hz": 50.0}  # boosting from the battery
+    for mode, expected in (("share", (None, None)), ("assist", (None, None)), ("wattpilot", (2000.0, 80.0))):
+        bridge = Bridge(parse(_raw(mode=mode, car_start_soc=70, car_stop_soc=60)), tmp_path)
+        for field, value in readings.items():
+            bridge.sources["s"].set(field, value)
+        bridge.compute()
+        data = bridge.data
+        assert (data["P_Akku"], data["SOC"]) == expected, mode
+        assert data["P_Grid"] + data["P_PV"] + (data["P_Akku"] or 0) + data["P_Load"] == 0, mode
+    assert data["P_Grid"] == 0.0  # the Wattpilot's own Boost setting decides about the discharge
+
+
 def _raw(**off_grid) -> dict:
     return {
         "name": "cabin",
@@ -104,6 +147,7 @@ def test_config() -> None:
         ({"car_start_soc": 70, "car_stop_soc": 80}, "stop charge"),
         ({"throttle_hz": 5}, "45–65 Hz"),
         ({"offer_w": "lots"}, "expected a number"),
+        ({"mode": "greedy"}, "share, assist"),
     ):
         with pytest.raises(ConfigError, match=message):
             parse(_raw(**bad))

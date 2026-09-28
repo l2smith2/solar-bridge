@@ -16,6 +16,7 @@ from typing import Any
 VALUE_NAMES = ("grid", "pv", "battery", "soc", "load", "frequency")
 POWER_VALUES = ("grid", "pv", "battery", "load")
 METER_ROLES = ("grid", "generator", "load")
+OFF_GRID_MODES = ("share", "assist", "wattpilot")
 SOURCE_TYPES = ("tesla", "http_json", "mqtt", "modbus", "sma_speedwire")
 _HOSTNAME = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
 
@@ -47,7 +48,10 @@ class OffGridConfig:
     """Off-grid: what the Wattpilot is shown in place of a grid (see offgrid.py)."""
 
     enabled: bool = False
-    car_start_soc: float = 90.0  # the car may use surplus once the battery is this full…
+    # share: the car shares battery charging; assist: it only gets held-back solar;
+    # wattpilot: the Wattpilot sees the battery and its own battery settings (Boost…) decide
+    mode: str = "share"
+    car_start_soc: float = 90.0  # share: the car may use surplus once the battery is this full…
     car_stop_soc: float = 80.0  # …until it drops below this
     full_soc: float = 98.0  # without a frequency reading: full battery + solar = solar held back
     throttle_hz: float | None = None  # solar held back above this; None = nominal + 0.2 Hz
@@ -182,7 +186,9 @@ def parse(raw: dict[str, Any]) -> Config:
 
 
 def _off_grid(raw: dict[str, Any]) -> OffGridConfig:
-    og = OffGridConfig(enabled=bool(raw.get("enabled", False)))
+    og = OffGridConfig(enabled=bool(raw.get("enabled", False)), mode=str(raw.get("mode") or "share"))
+    if og.mode not in OFF_GRID_MODES:
+        raise ConfigError(f"off_grid.mode must be one of {', '.join(OFF_GRID_MODES)}")
     try:
         for key in ("car_start_soc", "car_stop_soc", "full_soc", "throttle_hz", "offer_w"):
             if raw.get(key) not in (None, ""):

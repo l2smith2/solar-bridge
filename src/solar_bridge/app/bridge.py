@@ -116,13 +116,15 @@ class Bridge:
         }
         if self.off_grid:
             status = self.off_grid_status = self.off_grid.update(battery, soc, grid, pv, load, frequency)
-            # The Wattpilot sees a grid made up from the battery (offgrid.py). The battery itself is
-            # hidden from it, so its own battery rules don't count the same power twice.
+            # The Wattpilot sees a made-up grid (offgrid.py). Unless its own battery settings are to
+            # decide, the battery is hidden from it, so they don't count the same power twice.
+            if cfg.off_grid.mode != "wattpilot":
+                battery = soc = None
             self.data.update(
                 P_Grid=status.grid,
-                P_Akku=None,
-                SOC=None,
-                P_Load=None if status.grid is None or pv is None else -(status.grid + pv),
+                P_Akku=battery,
+                SOC=soc,
+                P_Load=None if status.grid is None or pv is None else -(status.grid + pv + (battery or 0.0)),
             )
         for meter in cfg.meters:
             power = meter_power(meter, self.values.get(meter.value))
@@ -186,6 +188,7 @@ class Bridge:
             ],
             "wattpilot": bool(cfg and cfg.wattpilot),
             "off_grid": None if self.off_grid_status is None else {
+                "mode": cfg.off_grid.mode if cfg else None,
                 "wattpilot_grid": self.off_grid_status.grid,
                 "state": self.off_grid_status.state,
                 "reason": self.off_grid_status.reason,

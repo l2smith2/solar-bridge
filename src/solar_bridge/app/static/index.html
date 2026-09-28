@@ -101,7 +101,8 @@ function render(s) {
   if (og) {
     const g = og.wattpilot_grid;
     $("og-value").textContent = g == null ? "No data — the Wattpilot pauses"
-      : g < -20 ? `${kw(-g)} surplus for the car` : "No surplus for the car";
+      : g < -20 ? `${kw(-g)} surplus for the car`
+      : og.mode === "wattpilot" ? "Battery use is up to the Wattpilot's settings" : "No surplus for the car";
     $("og-reason").textContent = og.reason.charAt(0).toUpperCase() + og.reason.slice(1) + ".";
   }
   $("v-battery").textContent = kw(v.battery == null ? null : Math.abs(v.battery));
