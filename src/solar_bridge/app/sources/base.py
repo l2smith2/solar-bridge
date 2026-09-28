@@ -16,6 +16,10 @@ class Source:
     missing, so a dead source serves null rather than a frozen value.
     """
 
+    READINGS: tuple[str, ...] = ()  # fixed readings, for sources without a 'fields' list
+    push = False  # readings arrive on their own rather than from poll()
+    silence_hint = "nothing received within 10 s"  # push sources: shown when a test hears nothing
+
     def __init__(self, name: str, config: dict[str, Any]) -> None:
         self.name = name
         self.config = config

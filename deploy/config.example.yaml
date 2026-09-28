@@ -42,6 +42,12 @@ sources:
   #   unit: 1
   #   fields:
   #     pv: {address: 40083, type: int16, scale_register: 40084}
+  #     # SMA: documented address, unit 3; nan = the value to use when it reports "not available"
+  #     # solar: {address: 30775, type: int32, input: true, nan: 0}
+
+  # sma_meter:               # SMA Energy Meter / Sunny Home Manager 2.0 (readings: grid, grid_l1..l3)
+  #   type: sma_speedwire
+  #   serial: 3012345678     # only needed with several SMA meters
 
 # ── What they mean ──────────────────────────────────────────────────────────
 # Signs: grid + importing, pv + producing, battery + discharging, load + consuming.

@@ -7,6 +7,7 @@ from .base import Source
 from .http_json import HttpJsonSource
 from .modbus import ModbusSource
 from .mqtt import MqttSource
+from .sma_speedwire import SmaSpeedwireSource
 from .tesla import TeslaSource
 
 SOURCE_TYPES: dict[str, type[Source]] = {
@@ -14,6 +15,7 @@ SOURCE_TYPES: dict[str, type[Source]] = {
     "http_json": HttpJsonSource,
     "mqtt": MqttSource,
     "modbus": ModbusSource,
+    "sma_speedwire": SmaSpeedwireSource,
 }
 
 

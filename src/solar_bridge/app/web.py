@@ -291,11 +291,13 @@ class App:
         try:
             await source.start()
             await asyncio.wait_for(source.refresh(), 45)
-            if scfg.get("type") == "mqtt" and not source.status()["values"]:
-                for _ in range(20):  # MQTT values arrive when the device next publishes
+            if source.push and not source.status()["values"]:
+                for _ in range(20):  # values arrive when the device next sends them
                     await asyncio.sleep(0.5)
                     if source.status()["values"]:
                         break
+                else:
+                    source.error = source.error or source.silence_hint
         except TimeoutError:
             source.error = "no answer within 45 s"
         finally:

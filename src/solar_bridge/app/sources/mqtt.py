@@ -31,6 +31,9 @@ def parse_payload(payload: bytes | str, path: str | None) -> float:
 
 
 class MqttSource(Source):
+    push = True
+    silence_hint = "no messages on these topics within 10 s"
+
     def __init__(self, name: str, config: dict[str, Any]) -> None:
         super().__init__(name, config)
         if not config.get("host"):

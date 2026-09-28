@@ -26,13 +26,24 @@ Pick your device in the settings page — ready-made templates fill in the detai
 
 | Group | Devices |
 |---|---|
-| Batteries & inverters | **Tesla Powerwall 2 / + / 3** (add-on), **Victron GX** (Cerbo, Venus OS), **Fronius** inverters via Solar API, **SunSpec** inverters over Modbus (SolarEdge, Fronius, Kostal, …) |
-| Energy meters | **Shelly** Pro 3EM, 3EM, Pro EM / EM Gen3, **Enphase** IQ Gateway / Envoy |
-| Solar | **OpenDTU** (Hoymiles), Shelly plugs (plug-in solar) |
+| Batteries & inverters | **Tesla Powerwall 2 / + / 3** (add-on), **Victron GX** (Cerbo, Venus OS), **Sigenergy** SigenStor / Sigen hybrid, **SMA** hybrid (Sunny Tripower / Sunny Boy Smart Energy), **SMA** Sunny Boy Storage / Sunny Island, **Selectronic** SP PRO (select.live or selpi), **Fronius** inverters via Solar API, **SunSpec** inverters over Modbus (SolarEdge, Fronius, Kostal, …) |
+| Energy meters | **SMA** Energy Meter / Sunny Home Manager 2.0, **Shelly** Pro 3EM, 3EM, Pro EM / EM Gen3, **Enphase** IQ Gateway / Envoy |
+| Solar | **SMA** Sunny Boy / Sunny Tripower, **OpenDTU** (Hoymiles), Shelly plugs (plug-in solar) |
 | Anything else | Any **Modbus TCP** device, any **MQTT** topic (Victron, Node-RED, evcc, Home Assistant, …), any **JSON web API** |
 
 Mix and match — e.g. grid power from a Shelly, battery from a Powerwall. Readings split per phase can be added up.
 Every device has a **Test** button that shows its live readings before you save.
+
+Brand notes:
+- **Sigenergy** — Modbus TCP must be switched on by your installer (it isn't in the customer app). The template reads
+  the whole system at plant address 247.
+- **SMA inverters** — switch on Modbus TCP in the inverter's web interface (Device parameters → External
+  communication → Modbus → TCP server). An inverter asleep at night reports "not available", which counts as 0 W.
+- **SMA Energy Meter / Home Manager** — nothing to set up: Solar Bridge listens to the readings the meter sends on
+  the network every second (Speedwire multicast, UDP 9522). It must be on the same network; with several SMA meters,
+  enter the grid meter's serial number.
+- **Selectronic SP PRO** — reads the select.live box on your network (no cloud login), using the device ID shown on its
+  display. A Raspberry Pi running [selpi](https://github.com/neerolyte/selpi) works too: enter its address and port.
 
 ## Install on a Raspberry Pi
 
@@ -63,7 +74,7 @@ docker build -t solar-bridge .                      # add Tesla: --build-arg EXT
 docker run -d --name solar-bridge --network host --restart unless-stopped \
   -v solar-bridge:/var/lib/solar-bridge solar-bridge
 ```
-Then open `http://<host>/settings`. `--network host` is required for mDNS.
+Then open `http://<host>/settings`. `--network host` is required for mDNS (and for SMA Energy Meter readings).
 
 ---
 

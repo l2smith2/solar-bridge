@@ -14,6 +14,8 @@ _PASSTHROUGH = ("host", "password", "email", "timezone", "gw_pwd", "cloudmode", 
 
 
 class TeslaSource(Source):
+    READINGS = ("grid", "solar", "battery", "load", "soc")
+
     def __init__(self, name: str, config: dict[str, Any]) -> None:
         super().__init__(name, config)
         self._pw: Any = None

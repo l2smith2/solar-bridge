@@ -15,7 +15,7 @@ from typing import Any
 
 VALUE_NAMES = ("grid", "pv", "battery", "soc", "load")
 METER_ROLES = ("grid", "generator", "load")
-SOURCE_TYPES = ("tesla", "http_json", "mqtt", "modbus")
+SOURCE_TYPES = ("tesla", "http_json", "mqtt", "modbus", "sma_speedwire")
 _HOSTNAME = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
 
 

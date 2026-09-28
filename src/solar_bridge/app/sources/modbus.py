@@ -1,4 +1,4 @@
-"""Read registers from any Modbus TCP device (SunSpec inverters and meters, Sungrow, ...).
+"""Read registers from any Modbus TCP device (SunSpec, SMA, Sigenergy, Victron, ...).
 
     type: modbus
     host: 192.168.1.40
@@ -7,20 +7,29 @@
     fields:
       pv: {address: 40083, type: int16, scale_register: 40084}   # SunSpec W + W_SF
       grid: {address: 5600, type: int32, scale: -1, input: true}  # input register, negated
+      solar: {address: 30775, type: int32, input: true, nan: 0}   # SMA: asleep at night
 
-`address` is the wire address (register number - 1). Types: int16, uint16,
-int32, uint32, float32. `scale` multiplies; `scale_register` is a SunSpec
-scale factor (value * 10^sf). `swap_words: true` for little-endian word order.
+`address` is the address sent on the wire: the documented number for SMA,
+Sigenergy or Victron; register number - 1 where docs count from 1 (SunSpec's
+40001 is address 40000). Types: int16, uint16, int32, uint32, float32.
+`scale` multiplies; `scale_register` is a SunSpec scale factor (value * 10^sf).
+`swap_words: true` for little-endian word order.
+
+Devices mark a register they can't fill with the type's "not available" value
+(SunSpec and SMA: 0x8000, 0xFFFF, 0x80000000, 0xFFFFFFFF, float NaN). Such a
+reading counts as missing, or as `nan` when set (e.g. 0 W for a sleeping inverter).
 """
 from __future__ import annotations
 
 import asyncio
+import math
 import struct
 from typing import Any
 
 from .base import Source, number
 
 _TYPES = {"int16": (">h", 1), "uint16": (">H", 1), "int32": (">i", 2), "uint32": (">I", 2), "float32": (">f", 2)}
+_NOT_AVAILABLE = {"int16": -0x8000, "uint16": 0xFFFF, "int32": -0x80000000, "uint32": 0xFFFFFFFF}
 
 
 class ModbusClient:
@@ -83,31 +92,36 @@ class ModbusSource(Source):
                 raise ValueError(f"field {fname} needs an 'address'")
             if spec.get("type", "int16") not in _TYPES:
                 raise ValueError(f"field {fname}: type must be one of {', '.join(_TYPES)}")
+            if spec.get("nan") not in (None, ""):
+                number(spec, "nan", 0, float)  # a friendly error now rather than at every poll
         self._client = ModbusClient(config["host"], number(config, "port", 502), number(config, "timeout", 5, float))
         self._unit = number(config, "unit", 1)
 
     async def stop(self) -> None:
         await self._client.close()
 
-    async def _read(self, spec: dict[str, Any]) -> float:
+    async def _read(self, spec: dict[str, Any]) -> float | None:
         kind = spec.get("type", "int16")
         is_input = bool(spec.get("input", False))
         raw = await self._client.read(self._unit, int(spec["address"]), _TYPES[kind][1], is_input)
-        value = decode(raw, kind, bool(spec.get("swap_words", False))) * float(spec.get("scale", 1))
+        value = decode(raw, kind, bool(spec.get("swap_words", False)))
+        if value == _NOT_AVAILABLE.get(kind) or math.isnan(value):
+            return None if spec.get("nan") in (None, "") else float(spec["nan"])
+        value *= float(spec.get("scale", 1))
         if spec.get("scale_register") not in (None, ""):
             sf_raw = await self._client.read(self._unit, int(spec["scale_register"]), 1, is_input)
             value *= 10 ** decode(sf_raw, "int16")
         return value
 
     async def poll(self) -> None:
-        results: dict[str, float | Exception] = {}
+        results: dict[str, float | None | Exception] = {}
         for fname, spec in self.fields.items():
             try:
                 results[fname] = await self._read(spec)
             except Exception as err:  # noqa: BLE001 — reported per field
                 results[fname] = err
 
-        def read(name: str, spec: dict[str, Any]) -> float:
+        def read(name: str, spec: dict[str, Any]) -> float | None:
             if isinstance(results[name], Exception):
                 raise results[name]
             return results[name]

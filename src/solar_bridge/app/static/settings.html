@@ -118,7 +118,9 @@
 <script>
 "use strict";
 const $ = (id) => document.getElementById(id);
-const TESLA_FIELDS = ["grid", "solar", "battery", "load", "soc"];
+// devices with fixed readings (the source's READINGS), rather than a list to fill in
+const FIXED_FIELDS = {tesla: ["grid", "solar", "battery", "load", "soc"],
+                      sma_speedwire: ["grid", "grid_l1", "grid_l2", "grid_l3"]};
 const VALUES = [
   {key: "grid", label: "Grid power", pos: "importing from the grid", neg: "exporting to the grid", required: true},
   {key: "pv", label: "Solar power", pos: "producing", neg: "consuming"},
@@ -138,12 +140,14 @@ const CONNECTION = {
   mqtt: [["host", "Broker IP address or hostname"], ["port", "Port"], ["username", "Username (optional)"],
          ["password", "Password (optional)", true]],
   modbus: [["host", "IP address or hostname"], ["port", "Port"], ["unit", "Unit ID"]],
+  sma_speedwire: [["serial", "Serial number (only needed with several SMA meters)"],
+                  ["interface", "This device's IP address (only with several networks)"]],
 };
 const READING_COLUMNS = {
   http_json: [["path", "Where in the JSON (e.g. data.power)"], ["scale", "Scale"]],
   mqtt: [["topic", "Topic"], ["path", "JSON path (optional)"], ["scale", "Scale"]],
   modbus: [["address", "Address"], ["type", "Type"], ["scale", "Scale"], ["scale_register", "SunSpec scale reg."],
-           ["input", "Input reg."], ["swap_words", "Swap words"]],
+           ["input", "Input reg."], ["swap_words", "Swap words"], ["nan", "If not available"]],
 };
 
 let cfg = null, original = "", templates = [], addonState = {}, live = {}, tested = {};
@@ -209,7 +213,7 @@ function serialize() {
   if (removePassword) out.remove_settings_password = true;
   return out;
 }
-function fieldNames(src) { return src.type === "tesla" ? TESLA_FIELDS : Object.keys(src.fields || {}); }
+function fieldNames(src) { return FIXED_FIELDS[src.type] || Object.keys(src.fields || {}); }
 function reading(source, field) {
   const t = tested[source]; if (t && field in t) return t[field];
   const l = live[source]; return l && l.values && field in l.values ? l.values[field] : null;
@@ -336,7 +340,7 @@ function currentSource() {
     }
   } else src = clone(editing.src);
   for (const k of Object.keys(src)) if (src[k] === "") delete src[k];
-  if (src.type !== "tesla") src.fields = fromRows(editing.rows);
+  if (!FIXED_FIELDS[src.type]) src.fields = fromRows(editing.rows);
   return src;
 }
 
@@ -405,8 +409,8 @@ function readingsTable(type) {
       MODBUS_TYPES.map((t) => h("option", {value: t, selected: (row.type || "int16") === t}, t)));
     if (key === "input" || key === "swap_words") return h("input", {type: "checkbox", checked: row[key],
       onchange: (ev) => { row[key] = ev.target.checked; }});
-    return h("input", {value: row[key] ?? "", size: key === "scale" ? 4 : 10, oninput: (ev) => {
-      const v = ev.target.value; row[key] = ["scale", "address", "scale_register"].includes(key) && v !== "" && !isNaN(v) ? Number(v) : v; }});
+    return h("input", {value: row[key] ?? "", size: ["scale", "nan"].includes(key) ? 4 : 10, oninput: (ev) => {
+      const v = ev.target.value; row[key] = ["scale", "address", "scale_register", "nan"].includes(key) && v !== "" && !isNaN(v) ? Number(v) : v; }});
   };
   const table = h("table", {},
     h("tr", {}, h("th", {}, "Reading"), cols.map(([, label]) => h("th", {}, label)), h("th")),

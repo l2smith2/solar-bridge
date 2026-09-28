@@ -257,7 +257,7 @@ async def test_modbus_one_bad_register_keeps_the_rest(monkeypatch: pytest.Monkey
 
 
 def test_templates_build_valid_sources() -> None:
-    from solar_bridge.app.sources import create_source
+    from solar_bridge.app.sources import SOURCE_TYPES, create_source
     from solar_bridge.app.templates import TEMPLATES
 
     def fill(obj, ask):  # as the settings page does: typed values or each field's default
@@ -273,10 +273,11 @@ def test_templates_build_valid_sources() -> None:
     for t in TEMPLATES:
         ask = {a["key"]: a.get("default", "x") for a in t.get("ask", [])} | {"host": "192.168.1.9"}
         src = fill(t["source"], ask)
-        if not src.get("fields") and src["type"] != "tesla":
+        fixed = SOURCE_TYPES[src["type"]].READINGS
+        if not src.get("fields") and not fixed:
             src["fields"] = {"x": {"address": 1} if src["type"] == "modbus" else "x"}
         create_source(t["id"], src)  # raises if the template is malformed
-        fields = {"grid", "solar", "battery", "load", "soc"} if src["type"] == "tesla" else set(src["fields"])
+        fields = set(fixed or src["fields"])
         for value, sug in t["values"].items():
             refs = sug["from"] if isinstance(sug, dict) else sug
             for ref in [refs] if isinstance(refs, str) else refs:
