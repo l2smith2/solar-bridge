@@ -18,7 +18,7 @@ import asyncio
 import struct
 from typing import Any
 
-from .base import Source
+from .base import Source, number
 
 _TYPES = {"int16": (">h", 1), "uint16": (">H", 1), "int32": (">i", 2), "uint32": (">I", 2), "float32": (">f", 2)}
 
@@ -75,27 +75,41 @@ class ModbusSource(Source):
         super().__init__(name, config)
         if not config.get("host"):
             raise ValueError("needs a 'host'")
-        self._fields: dict[str, dict[str, Any]] = config.get("fields") or {}
-        if not self._fields:
+        self.fields = config.get("fields") or {}
+        if not self.fields:
             raise ValueError("needs 'fields'")
-        for fname, spec in self._fields.items():
+        for fname, spec in self.fields.items():
             if not isinstance(spec, dict) or "address" not in spec:
                 raise ValueError(f"field {fname} needs an 'address'")
             if spec.get("type", "int16") not in _TYPES:
                 raise ValueError(f"field {fname}: type must be one of {', '.join(_TYPES)}")
-        self._client = ModbusClient(config["host"], int(config.get("port", 502)), float(config.get("timeout", 5)))
-        self._unit = int(config.get("unit", 1))
+        self._client = ModbusClient(config["host"], number(config, "port", 502), number(config, "timeout", 5, float))
+        self._unit = number(config, "unit", 1)
 
     async def stop(self) -> None:
         await self._client.close()
 
+    async def _read(self, spec: dict[str, Any]) -> float:
+        kind = spec.get("type", "int16")
+        is_input = bool(spec.get("input", False))
+        raw = await self._client.read(self._unit, int(spec["address"]), _TYPES[kind][1], is_input)
+        value = decode(raw, kind, bool(spec.get("swap_words", False))) * float(spec.get("scale", 1))
+        if spec.get("scale_register") not in (None, ""):
+            sf_raw = await self._client.read(self._unit, int(spec["scale_register"]), 1, is_input)
+            value *= 10 ** decode(sf_raw, "int16")
+        return value
+
     async def poll(self) -> None:
-        for fname, spec in self._fields.items():
-            kind = spec.get("type", "int16")
-            is_input = bool(spec.get("input", False))
-            raw = await self._client.read(self._unit, int(spec["address"]), _TYPES[kind][1], is_input)
-            value = decode(raw, kind, bool(spec.get("swap_words", False))) * float(spec.get("scale", 1))
-            if "scale_register" in spec:
-                sf_raw = await self._client.read(self._unit, int(spec["scale_register"]), 1, is_input)
-                value *= 10 ** decode(sf_raw, "int16")
-            self.set(fname, value)
+        results: dict[str, float | Exception] = {}
+        for fname, spec in self.fields.items():
+            try:
+                results[fname] = await self._read(spec)
+            except Exception as err:  # noqa: BLE001 — reported per field
+                results[fname] = err
+
+        def read(name: str, spec: dict[str, Any]) -> float:
+            if isinstance(results[name], Exception):
+                raise results[name]
+            return results[name]
+
+        self.read_fields(read)

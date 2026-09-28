@@ -19,7 +19,10 @@ class TeslaSource(Source):
         self._pw: Any = None
 
     def _connect(self) -> Any:
-        import pypowerwall  # optional dependency: pip install solar-bridge[app]
+        try:
+            import pypowerwall  # add-on: settings page → Install, or pip install 'solar-bridge[tesla]'
+        except ImportError as err:
+            raise RuntimeError("Tesla support isn't installed — install it from the settings page") from err
 
         kwargs = {k: self.config[k] for k in _PASSTHROUGH if k in self.config}
         kwargs.update(self.config.get("options") or {})

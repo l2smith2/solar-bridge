@@ -20,88 +20,73 @@ It runs on a Raspberry Pi (or any Linux box, or Docker), needs no cloud account,
 | Fronius Wattpilot | Fronius Solar API v1 (HTTP, port 80) + mDNS | A GEN24-style inverter with grid, PV, battery, SOC and per-phase meter data |
 | Fronius inverter (SnapIN, GEN24) | Smart Meter IP — SunSpec Modbus TCP (port 502) | Any number of meters on one port, one unit ID each: grid, generator or load position |
 
-## Where the data comes from
+## Works with
 
-| Source | Covers |
+Pick your device in the settings page — ready-made templates fill in the details:
+
+| Group | Devices |
 |---|---|
-| `tesla` | Tesla Powerwall 2 / + / 3 via [pypowerwall](https://github.com/jasonacox/pypowerwall): local gateway, Powerwall 3 TEDAPI, or cloud |
-| `modbus` | Any Modbus TCP device: SunSpec inverters and meters (SMA, SolarEdge, Fronius, Kostal, …), Sungrow, Huawei, GoodWe, … |
-| `mqtt` | Anything that publishes to MQTT: Victron, Node-RED, evcc, pypowerwall-server, Home Assistant, … |
-| `http_json` | Any JSON HTTP API: Shelly, Enphase Envoy, OpenDTU, … |
+| Batteries & inverters | **Tesla Powerwall 2 / + / 3** (add-on), **Victron GX** (Cerbo, Venus OS), **Fronius** inverters via Solar API, **SunSpec** inverters over Modbus (SolarEdge, Fronius, Kostal, …) |
+| Energy meters | **Shelly** Pro 3EM, 3EM, Pro EM / EM Gen3, **Enphase** IQ Gateway / Envoy |
+| Solar | **OpenDTU** (Hoymiles), Shelly plugs (plug-in solar) |
+| Anything else | Any **Modbus TCP** device, any **MQTT** topic (Victron, Node-RED, evcc, Home Assistant, …), any **JSON web API** |
 
-Mix and match: e.g. grid power from a Shelly, battery from a Powerwall.
-
----
+Mix and match — e.g. grid power from a Shelly, battery from a Powerwall. Readings split per phase can be added up.
+Every device has a **Test** button that shows its live readings before you save.
 
 ## Install on a Raspberry Pi
 
-**Hardware:** any Raspberry Pi 3 or newer, the official power supply, a good microSD card, and a **network cable** to your router. Wi-Fi works for the data sources, but the Wattpilot finds the bridge by multicast, which is unreliable over Wi-Fi.
+**Hardware:** any Raspberry Pi from the **Pi 2** up, a power supply, a microSD card, and a **network cable** to your router. (Wi-Fi works for reading devices, but the Wattpilot finds the bridge by multicast, which is unreliable over Wi-Fi.)
 
-1. Flash **Raspberry Pi OS Lite** with [Raspberry Pi Imager](https://www.raspberrypi.com/software/). In its settings, set the hostname (e.g. `fronius-virtual`), a user, and enable SSH.
+1. Flash **Raspberry Pi OS Lite** with [Raspberry Pi Imager](https://www.raspberrypi.com/software/) (32-bit for a Pi 2). In its settings, set the hostname — e.g. `fronius-virtual` — a user, and enable SSH.
 2. SSH in and run:
    ```sh
    curl -fsSL https://raw.githubusercontent.com/l2smith2/solar-bridge/main/deploy/install.sh | sudo sh
    ```
-3. Edit the config (examples for every source are inside):
-   ```sh
-   sudo nano /etc/solar-bridge/config.yaml
-   ```
-4. Test it — this reads every source and shows exactly what will be served:
-   ```sh
-   sudo /opt/solar-bridge/bin/solar-bridge --check
-   ```
-5. Start it, and open **http://fronius-virtual.local/** for the live power flow:
-   ```sh
-   sudo systemctl start solar-bridge
-   ```
-6. Pair the Wattpilot: Solar.wattpilot app → scan for inverters → pick your display name.
+3. Open **http://fronius-virtual.local/settings** and follow the page: add your devices, check what the readings mean, save.
+4. Pair the Wattpilot: Solar.wattpilot app → scan for inverters → pick your display name.
 
-It starts on boot and restarts itself if anything goes wrong. Energy totals are saved every 5 minutes and survive restarts and power cuts.
+That's it — no files to edit. It starts on boot, restarts itself if anything goes wrong, and keeps energy totals across restarts and power cuts. Run the installer again to update.
 
-**Optional, for years of hands-off running:** `sudo raspi-config` → Performance → **Overlay file system**, which makes the SD card read-only so power cuts can't corrupt it. Energy totals then reset when the Pi reboots — leave it off if Solar.web energy history matters to you.
+### Tesla Powerwall
+Tesla support is an add-on, so installs stay small for everyone else. Either:
+- choose *Tesla Powerwall* in the settings page and press **Install Tesla Powerwall support**, or
+- install it up front: `curl -fsSL …/install.sh | sudo sh -s -- --tesla`
+
+### Hands-off for years (optional)
+`sudo raspi-config` → Performance → **Overlay file system** makes the SD card read-only, so power cuts can't corrupt it. Settings changes and energy totals then only last until the next reboot — set everything up first, and leave it off if Solar.web energy history matters to you.
 
 ## Docker
 
 ```sh
-docker build -t solar-bridge .
+docker build -t solar-bridge .                      # add Tesla: --build-arg EXTRAS=app,tesla
 docker run -d --name solar-bridge --network host --restart unless-stopped \
-  -v /path/to/config.yaml:/etc/solar-bridge/config.yaml \
   -v solar-bridge:/var/lib/solar-bridge solar-bridge
 ```
-`--network host` is required for mDNS.
+Then open `http://<host>/settings`. `--network host` is required for mDNS.
 
 ---
 
-## Configuration
+## Settings
 
-See [`deploy/config.example.yaml`](deploy/config.example.yaml). In short:
+Everything is set in the web page at `/settings`:
 
-```yaml
-name: fronius-virtual          # hostname → http://fronius-virtual.local
-display_name: MyHome           # shown when pairing the Wattpilot
-grid: {phases: 1, breaker_amps: 32}
+1. **Devices** — where readings come from. Pick a template, enter the address, press **Test**.
+2. **What the readings mean** — choose the reading for grid, solar, battery, battery charge and home. Each shows a live description (“exporting to the grid 1.3 kW”, “battery charging 1.6 kW”); tick **Invert** if one is backwards. Home consumption is worked out automatically if you leave it out.
+3. **Wattpilot & Fronius** — display name, grid phases, main breaker rating, and optional Smart Meter IPs.
+4. **Settings password** — optional; without one, anyone on your network can change the settings.
 
-sources:
-  powerwall: {type: tesla, host: 192.168.1.50, password: "…", email: you@example.com}
+Settings are kept in `/var/lib/solar-bridge/config.json`.
 
-values:                        # grid + importing, pv + producing,
-  grid: powerwall.grid         # battery + discharging, load + consuming
-  pv: powerwall.solar
-  battery: powerwall.battery
-  soc: powerwall.soc
+### Prefer a file? (optional)
+Create `/etc/solar-bridge/config.yaml` from [`deploy/config.example.yaml`](deploy/config.example.yaml) (install with `--yaml`), or run `solar-bridge --config my-settings.json`. The web page then shows the settings read-only. `solar-bridge --check` reads every device once and prints what would be served.
 
-meters:                        # optional, for a real Fronius inverter
-  - {name: grid, unit_id: 240, value: grid, role: grid}
-  - {name: ac-battery, unit_id: 241, value: battery, role: generator}
-```
+### Adding a Smart Meter IP on the Fronius inverter
+Add the meter under **Settings → Wattpilot & Fronius → Smart Meter IPs**, choosing what it measures and its position. Then, in the Fronius inverter's web interface, add a **Fronius Smart Meter IP** at the bridge's IP address, with the meter's **unit ID** as the Modbus address and the same position (feed-in point / external generator / consumption path). All meters share port 502.
 
-Signs are the everyday ones (not Fronius' internal ones — the bridge converts). If a reading comes out backwards, add `invert: true`:
-`battery: {from: powerwall.battery, invert: true}`. `--check` shows every value with its meaning, so you can see straight away.
+**Example — an AC-coupled battery as an external generator:** add a meter measuring *Battery power* with position *External generator* (unit 241 by default, next to the grid meter on 240).
 
-### Adding a meter on the Fronius inverter
-In the inverter's web interface, add a **Fronius Smart Meter IP** at the bridge's IP address with the meter's **unit ID** as the Modbus address, and pick the position matching its `role` (feed-in point / external generator / consumption path). All meters share port 502.
-
-A meter reports power flowing *from the grid side into the device* as positive, like a real meter wired with the grid on one side: a discharging battery at the generator position reads negative, which Fronius shows as generation. If yours shows backwards, set `invert: true` on the meter.
+A meter reports power flowing *from the grid side into the device* as positive, like a real meter wired with the grid on one side: a discharging battery at the generator position reads negative, which Fronius shows as generation. If yours shows backwards, tick the meter's **Invert**.
 
 ---
 
@@ -109,7 +94,7 @@ A meter reports power flowing *from the grid side into the device* as positive, 
 
 `http://<name>.local/` shows live solar, grid, battery and home power, plus:
 - when the Wattpilot last polled, and when the Fronius inverter last read each meter
-- each data source's health and last reading
+- each device's health and any problems (e.g. a port that couldn't be opened)
 
 `/api/state` returns the same as JSON.
 
@@ -122,7 +107,10 @@ Prefer Home Assistant? The [Fronius Virtual Inverter](https://github.com/l2smith
 ```sh
 pip install -e ".[app,test]"
 pytest
+solar-bridge --data-dir ./data --port 8080     # then open http://localhost:8080/settings
 ```
+
+Optional extras: `tesla` (pypowerwall), `yaml` (YAML settings files), `all`.
 
 `solar_bridge.core` (the protocol emulation) depends only on aiohttp, so the Home Assistant integration can use it as a library. Everything else lives in `solar_bridge.app`.
 

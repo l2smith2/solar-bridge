@@ -15,7 +15,13 @@ authors = [{ name = "l2smith2" }]
 dependencies = ["aiohttp>=3.9"]
 
 [project.optional-dependencies]
-app = ["PyYAML>=6", "aiomqtt>=2", "pypowerwall>=0.10"]
+# The standalone app. Everything it needs is small and pure Python, so it installs
+# quickly on any Raspberry Pi (Pi 2 included).
+app = ["aiomqtt>=2"]
+# Optional add-ons — also installable from the settings page
+tesla = ["pypowerwall>=0.10"]
+yaml = ["PyYAML>=6"]  # only for YAML settings files; the web page needs nothing
+all = ["solar-bridge[app,tesla,yaml]"]
 test = ["pytest>=8", "pytest-asyncio>=0.23", "PyYAML>=6"]
 
 [project.scripts]

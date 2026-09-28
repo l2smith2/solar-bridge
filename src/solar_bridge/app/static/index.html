@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 16 16%27%3E%3Ccircle cx=%278%27 cy=%278%27 r=%276%27 fill=%27%23e0a100%27/%3E%3C/svg%3E">
 <title>Solar Bridge</title>
 <style>
   :root {
@@ -20,6 +21,7 @@
   header { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
   h1 { font-size: 20px; margin: 4px 0 12px; }
   .muted { color: var(--muted); font-size: 13px; }
+  a { color: var(--home); }
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
   svg { width: 100%; height: auto; display: block; }
   .node circle { fill: var(--card); stroke-width: 3; }
@@ -42,7 +44,8 @@
 </head>
 <body>
 <main>
-  <header><h1 id="title">Solar Bridge</h1><span class="muted" id="updated">connecting…</span></header>
+  <header><h1 id="title">Solar Bridge</h1>
+    <span class="muted"><span id="updated">connecting…</span> · <a href="settings">Settings</a></span></header>
 
   <section class="card" aria-label="Power flow">
     <svg viewBox="0 0 400 360" role="img" aria-labelledby="flowdesc">
@@ -81,6 +84,7 @@ function flow(id, watts, towards) {
 }
 
 function render(s) {
+  if (s.configured === false) { location.href = "settings"; return; }
   const v = s.values || {};
   $("title").textContent = s.name || "Solar Bridge";
   document.title = (s.name || "Solar Bridge") + " · power flow";
@@ -100,8 +104,9 @@ function render(s) {
   const rows = [];
   for (const [ip, c] of Object.entries(s.clients || {}))
     rows.push(`<tr><td class="${c.age_s < 60 ? "ok" : "bad"}">Wattpilot / Solar API client ${esc(ip)}</td><td>${ago(c.age_s)}</td></tr>`);
-  if (!Object.keys(s.clients || {}).length)
+  if (s.wattpilot && !Object.keys(s.clients || {}).length)
     rows.push(`<tr><td class="bad">No Wattpilot has polled yet</td><td></td></tr>`);
+  for (const p of s.problems || []) rows.push(`<tr><td class="bad">${esc(p)}</td><td></td></tr>`);
   for (const m of s.meters || [])
     rows.push(`<tr><td class="${m.last_read_s != null && m.last_read_s < 60 ? "ok" : "bad"}">Meter ${esc(m.name)} · unit ${m.unit_id} · ${esc(m.role)}<br><span class="muted">${kw(m.power)} on the wire</span></td><td>read ${ago(m.last_read_s)}</td></tr>`);
   $("devices").innerHTML = rows.join("");

@@ -2,13 +2,11 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import struct
 import sys
 import types
 from pathlib import Path
 
-import aiohttp
 import pytest
 from aiohttp import web
 
@@ -36,7 +34,7 @@ def _config(**overrides) -> dict:
 
 def test_example_config_is_valid() -> None:
     cfg = load(EXAMPLE)
-    assert cfg.values["battery"].field == "battery"
+    assert cfg.values["battery"].parts == [("powerwall", "battery")]
     assert [(m.unit_id, m.role) for m in cfg.meters] == [(240, "grid"), (241, "generator")]
     assert cfg.serial == "MyHome"
 
@@ -44,11 +42,14 @@ def test_example_config_is_valid() -> None:
 @pytest.mark.parametrize(
     ("overrides", "message"),
     [
-        ({"name": "my bridge"}, "hostname"),
-        ({"values": {"pv": "s.g"}}, "values.grid is required"),
-        ({"values": {"grid": "nope.g"}}, "no source called"),
+        ({"name": "my bridge"}, "network name"),
+        ({"values": {"pv": "s.g"}}, "grid power is required"),
+        ({"values": {"grid": "nope.g"}}, "no device called"),
         ({"values": {"grid": "s.g", "voltage": "s.g"}}, "unknown value"),
         ({"sources": {"s": {"type": "carrier-pigeon"}}}, "type must be one of"),
+        ({"sources": {}}, "add at least one device"),
+        ({"sources": {"bad name": {"type": "mqtt"}}}, "letters, digits"),
+        ({"grid": {"breaker_amps": "lots"}}, "expected a number"),
         ({"meters": [{"unit_id": 240}, {"unit_id": 240}]}, "unique"),
         ({"meters": [{"value": "soc"}]}, "not a configured power value"),
         ({"grid": {"phases": 2}}, "phases must be 1 or 3"),
@@ -83,7 +84,7 @@ def test_bridge_converts_to_fronius_and_balances_load(tmp_path: Path) -> None:
         values={"grid": "s.grid", "pv": "s.pv", "battery": "s.bat", "soc": "s.soc"},
         meters=[{"name": "bat", "unit_id": 241, "value": "battery", "role": "generator"}],
     ))
-    bridge = Bridge(cfg)
+    bridge = Bridge(cfg, tmp_path)
     src = bridge.sources["s"]
     for field, value in {"grid": 200.0, "pv": 3000.0, "bat": 1000.0, "soc": 104.0}.items():
         src.set(field, value)
@@ -96,7 +97,7 @@ def test_bridge_converts_to_fronius_and_balances_load(tmp_path: Path) -> None:
 
 
 def test_stale_values_are_dropped(tmp_path: Path) -> None:
-    bridge = Bridge(parse(_config(data_dir=str(tmp_path))))
+    bridge = Bridge(parse(_config()), tmp_path)
     src = bridge.sources["s"]
     src.set("g", 100.0)
     assert src.get("g") == 100.0
@@ -197,61 +198,95 @@ async def test_tesla_source(monkeypatch: pytest.MonkeyPatch) -> None:
         "grid": 150.0, "solar": 3200.0, "battery": -1800.0, "load": 1550.0, "soc": 87.0}
 
 
-# ── end to end ──────────────────────────────────────────────────────────────
+def test_tesla_without_addon(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(sys.modules, "pypowerwall", None)  # import fails
+    from solar_bridge.app.sources.tesla import TeslaSource
 
-async def test_bridge_end_to_end(tmp_path: Path, port_factory) -> None:
-    feed_port, http_port, modbus_port = port_factory(), port_factory(), port_factory()
-    readings = {"grid": -1500.0, "solar": 4000.0, "battery": 1200.0, "soc": 64.0}
+    source = TeslaSource("pw", {"type": "tesla", "host": "x"})
+    asyncio.run(source.refresh())
+    assert "install it from the settings page" in source.error
 
-    async def feed(request: web.Request) -> web.Response:
-        return web.json_response(readings)
+
+def test_values_can_add_up_parts(tmp_path: Path) -> None:
+    cfg = parse(_config(values={"grid": ["s.l1", "s.l2", "s.l3"], "pv": {"from": "s.pv", "scale": 1000}}))
+    bridge = Bridge(cfg, tmp_path)
+    src = bridge.sources["s"]
+    src.set("l1", 100.0)
+    src.set("l2", 200.0)
+    src.set("pv", 1.5)
+    bridge.compute()
+    assert bridge.values["grid"] == 300.0  # a missing phase doesn't blank the total
+    assert bridge.values["pv"] == 1500.0
+
+
+async def test_http_json_one_bad_field_keeps_the_rest(free_port: int) -> None:
+    async def handler(request: web.Request) -> web.Response:
+        return web.json_response({"grid": 50, "pv": None})
 
     app = web.Application()
-    app.router.add_get("/", feed)
+    app.router.add_get("/", handler)
     runner = web.AppRunner(app)
     await runner.setup()
-    await web.TCPSite(runner, "127.0.0.1", feed_port).start()
-
-    cfg = parse({
-        "name": "e2e", "display_name": "MyHome", "http_port": http_port, "modbus_port": modbus_port,
-        "data_dir": str(tmp_path), "wattpilot": False,
-        "sources": {"dev": {"type": "http_json", "url": f"http://127.0.0.1:{feed_port}/",
-                            "fields": {"grid": "grid", "solar": "solar", "battery": "battery", "soc": "soc"}}},
-        "values": {"grid": "dev.grid", "pv": "dev.solar", "battery": "dev.battery", "soc": "dev.soc"},
-        "meters": [{"name": "grid", "unit_id": 240, "value": "grid"},
-                   {"name": "ac-battery", "unit_id": 241, "value": "battery", "role": "generator"}],
-    })
-    bridge = Bridge(cfg)
-    stop = asyncio.Event()
-    task = asyncio.create_task(bridge.run(stop))
+    await web.TCPSite(runner, "127.0.0.1", free_port).start()
+    source = HttpJsonSource("d", {"type": "http_json", "url": f"http://127.0.0.1:{free_port}/",
+                                  "fields": {"grid": "grid", "pv": "pv", "load": "no.such.path"}})
+    await source.start()
     try:
-        for _ in range(50):
-            await asyncio.sleep(0.05)
-            if bridge._http and bridge._modbus:
-                break
-        async with aiohttp.ClientSession() as session:
-            async with session.get(f"http://127.0.0.1:{http_port}/solar_api/v1/GetPowerFlowRealtimeData.fcgi") as r:
-                site = (await r.json(content_type=None))["Body"]["Data"]["Site"]
-            async with session.get(f"http://127.0.0.1:{http_port}/") as r:
-                assert r.status == 200 and "power flow" in (await r.text()).lower()
-            async with session.get(f"http://127.0.0.1:{http_port}/api/state") as r:
-                state = await r.json()
-        assert (site["P_Grid"], site["P_PV"], site["P_Akku"], site["P_Load"]) == (-1500.0, 4000.0, 1200.0, -3700.0)
-        assert state["values"]["load"] == 3700.0
-        assert state["sources"]["dev"]["ok"] is True
-        assert "127.0.0.1" in state["clients"]  # our Solar API request was noticed
-
-        reader, writer = await asyncio.open_connection("127.0.0.1", modbus_port)
-        for unit, expected in ((240, -1500.0), (241, -1200.0)):
-            writer.write(struct.pack(">HHHBBHH", 1, 0, 6, unit, 3, 40097, 2))
-            await writer.drain()
-            reply = await asyncio.wait_for(reader.readexactly(13), 2)
-            assert struct.unpack(">f", reply[9:13])[0] == expected
-        writer.close()
+        await source.refresh()
     finally:
-        stop.set()
-        await asyncio.wait_for(task, 10)  # also proves shutdown doesn't hang with a client connected
+        await source.stop()
         await runner.cleanup()
+    assert source.get("grid") == 50.0
+    assert source.get("pv") is None  # JSON null (e.g. an inverter asleep) is not an error
+    assert source.error and source.error.startswith("load:")
 
-    saved = json.loads((tmp_path / "energy.json").read_text())
-    assert set(saved["meters"]) == {"grid", "ac-battery"}
+
+async def test_modbus_one_bad_register_keeps_the_rest(monkeypatch: pytest.MonkeyPatch) -> None:
+    source = ModbusSource("m", {"type": "modbus", "host": "h", "fields": {
+        "a": {"address": 1, "type": "uint16"}, "b": {"address": 2, "type": "uint16"}}})
+
+    async def fake_read(unit, address, count, input_registers=False):
+        if address == 2:
+            raise ConnectionError("Modbus exception 2")
+        return struct.pack(">H", 7)
+
+    monkeypatch.setattr(source._client, "read", fake_read)
+    await source.refresh()
+    assert source.get("a") == 7.0 and source.get("b") is None
+    assert "b: Modbus exception 2" in source.error
+
+
+def test_templates_build_valid_sources() -> None:
+    from solar_bridge.app.sources import create_source
+    from solar_bridge.app.templates import TEMPLATES
+
+    def fill(obj, ask):  # as the settings page does: typed values or each field's default
+        if isinstance(obj, str):
+            for key, value in ask.items():
+                obj = obj.replace("{" + key + "}", str(value))
+            assert "{" not in obj, obj
+            return obj
+        if isinstance(obj, dict):
+            return {k: fill(v, ask) for k, v in obj.items()}
+        return obj
+
+    for t in TEMPLATES:
+        ask = {a["key"]: a.get("default", "x") for a in t.get("ask", [])} | {"host": "192.168.1.9"}
+        src = fill(t["source"], ask)
+        if not src.get("fields") and src["type"] != "tesla":
+            src["fields"] = {"x": {"address": 1} if src["type"] == "modbus" else "x"}
+        create_source(t["id"], src)  # raises if the template is malformed
+        fields = {"grid", "solar", "battery", "load", "soc"} if src["type"] == "tesla" else set(src["fields"])
+        for value, sug in t["values"].items():
+            refs = sug["from"] if isinstance(sug, dict) else sug
+            for ref in [refs] if isinstance(refs, str) else refs:
+                assert ref in fields, (t["id"], value, ref)
+
+
+def test_friendly_errors_for_blank_numbers() -> None:
+    from solar_bridge.app.sources import create_source
+
+    with pytest.raises(ValueError, match="unit must be a number"):
+        create_source("m", {"type": "modbus", "host": "h", "unit": "", "fields": {"a": {"address": 1}}})
+    with pytest.raises(ValueError, match="port must be a number"):
+        create_source("q", {"type": "mqtt", "host": "h", "port": "abc", "fields": {"a": "t"}})

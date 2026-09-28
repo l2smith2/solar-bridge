@@ -34,6 +34,8 @@ _LOGGER = logging.getLogger(__name__)
 async def _error_middleware(request: web.Request, handler) -> web.Response:
     try:
         return await handler(request)
+    except web.HTTPException:
+        raise  # 404s etc. are normal answers, not server errors
     except Exception as e:
         _LOGGER.error("HTTP handler error for %s: %s", request.path, e)
         return web.Response(status=500)

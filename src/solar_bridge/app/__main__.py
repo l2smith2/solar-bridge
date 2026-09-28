@@ -1,14 +1,25 @@
-"""Command line: `solar-bridge --config /etc/solar-bridge/config.yaml [--check]`."""
+"""Command line.
+
+    solar-bridge                      settings from the web page (http://<device>/settings)
+    solar-bridge --config FILE.yaml   settings from a file instead (YAML needs solar-bridge[yaml])
+    solar-bridge --check              read every device once and show what would be served
+"""
 from __future__ import annotations
 
 import argparse
 import asyncio
 import logging
+import os
 import signal
 import sys
+from pathlib import Path
 
+from . import addons
 from .bridge import Bridge
-from .config import ConfigError, load
+from .config import ConfigError
+from .web import App
+
+DEFAULT_FILE = Path("/etc/solar-bridge/config.yaml")
 
 
 def _fmt(value: float | None, unit: str = "W") -> str:
@@ -27,19 +38,23 @@ async def check(bridge: Bridge) -> int:
         for source in bridge.sources.values():
             await source.stop()
 
-    ok = True
-    print("Sources:")
+    ok = not bridge.problems
+    for problem in bridge.problems:
+        print(f"✗ {problem}")
+    print("Devices:")
     for name, source in bridge.sources.items():
         st = source.status()
         ok &= st["ok"]
-        detail = st["error"] or ", ".join(f"{k}={v:g}" for k, v in st["values"].items())
+        readings = ", ".join(f"{k}={v:g}" for k, v in st["values"].items())
+        detail = f"{readings}  ({st['error']})" if readings and st["error"] else st["error"] or readings
         print(f"  {'✓' if st['ok'] else '✗'} {name} ({st['type']}): {detail}")
     v = bridge.values
     print("\nValues (grid + importing, battery + discharging, load + consuming):")
     for key, unit in (("grid", "W"), ("pv", "W"), ("battery", "W"), ("load", "W"), ("soc", "%")):
         print(f"  {key:8} {_fmt(v.get(key), unit)}")
+    assert bridge.config
     if bridge.config.meters:
-        print("\nModbus meters (+ = from the grid side into the device):")
+        print("\nSmart Meter IPs (+ = from the grid side into the device):")
         for meter in bridge.config.meters:
             power = bridge.meter_data[meter.name].get("P_Grid")
             print(f"  unit {meter.unit_id:3} {meter.name} ({meter.role}): {_fmt(power)}")
@@ -50,31 +65,45 @@ async def check(bridge: Bridge) -> int:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(prog="solar-bridge", description=__doc__)
-    parser.add_argument("-c", "--config", default="/etc/solar-bridge/config.yaml")
-    parser.add_argument("--check", action="store_true", help="test the config and sources, then exit")
+    parser = argparse.ArgumentParser(prog="solar-bridge", description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("-c", "--config", type=Path, help="settings file (YAML or JSON) instead of the web page")
+    parser.add_argument("--data-dir", type=Path,
+                        default=Path(os.environ.get("STATE_DIRECTORY", "/var/lib/solar-bridge")),
+                        help="where settings, energy totals and add-ons are kept")
+    parser.add_argument("--port", type=int, default=80, help="web page port before anything is configured")
+    parser.add_argument("--check", action="store_true", help="read every device once, show the result, exit")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
-    try:
-        bridge = Bridge(load(args.config))
-    except (ConfigError, ValueError) as err:
-        sys.exit(f"Config error: {err}")
+    config_file = args.config or (Path(os.environ["SOLAR_BRIDGE_CONFIG"]) if os.environ.get("SOLAR_BRIDGE_CONFIG")
+                                  else DEFAULT_FILE if DEFAULT_FILE.exists() else None)
+    app = App(args.data_dir, config_file, args.port)
 
     if args.check:
-        sys.exit(asyncio.run(check(bridge)))
+        addons.enable(args.data_dir)
+        try:
+            config = app.load_config()
+        except ConfigError as err:
+            sys.exit(f"Configuration problem: {err}")
+        if config is None:
+            sys.exit("Not configured yet — open the settings page (http://<this device>/settings).")
+        sys.exit(asyncio.run(check(Bridge(config, args.data_dir))))
 
     async def run() -> None:
         stop = asyncio.Event()
         loop = asyncio.get_running_loop()
         for sig in (signal.SIGINT, signal.SIGTERM):
             loop.add_signal_handler(sig, stop.set)
-        await bridge.run(stop)
+        await app.run(stop)
 
-    asyncio.run(run())
+    try:
+        asyncio.run(run())
+    except OSError as err:
+        sys.exit(f"Cannot start: {err}")
 
 
 if __name__ == "__main__":

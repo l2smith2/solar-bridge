@@ -1,4 +1,8 @@
-"""The standalone bridge: sources in, Fronius protocols out."""
+"""The bridge runtime: sources in, Fronius protocols out.
+
+One Bridge runs one configuration. Saving new settings replaces it (see web.py).
+With no configuration it runs in setup mode: just the web page.
+"""
 from __future__ import annotations
 
 import asyncio
@@ -6,6 +10,7 @@ import json
 import logging
 import os
 import time
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -18,7 +23,6 @@ from .sources import Source, create_source
 
 _LOGGER = logging.getLogger(__name__)
 SAVE_INTERVAL = 300  # s
-STATIC = Path(__file__).parent / "static"
 
 
 def meter_power(meter: MeterConfig, value: float | None) -> float | None:
@@ -34,35 +38,61 @@ def meter_power(meter: MeterConfig, value: float | None) -> float | None:
 
 
 class Bridge:
-    def __init__(self, config: Config) -> None:
+    def __init__(
+        self,
+        config: Config | None,
+        data_dir: Path,
+        http_port: int = 80,
+        add_routes: Callable[[web.Application], None] | None = None,
+    ) -> None:
         self.config = config
-        self.sources: dict[str, Source] = {n: create_source(n, c) for n, c in config.sources.items()}
+        self.data_dir = (config.data_dir if config and config.data_dir else data_dir)
+        self.http_port = config.http_port if config else http_port
+        self._add_routes = add_routes
+        self.sources: dict[str, Source] = {}
+        self.problems: list[str] = []  # non-fatal start-up problems, shown on the web page
+        for name, scfg in (config.sources if config else {}).items():
+            try:
+                self.sources[name] = create_source(name, scfg)
+            except ValueError as err:
+                self.problems.append(str(err))
+        meters = config.meters if config else []
         self.energy = EnergyCounters()
-        self.meter_energy = {m.name: EnergyCounters() for m in config.meters}
+        self.meter_energy = {m.name: EnergyCounters() for m in meters}
         self.values: dict[str, float | None] = {}  # natural signs, for the web page
         self.data: dict[str, Any] = {}  # Fronius Solar API conventions
-        self.meter_data: dict[str, dict[str, Any]] = {m.name: {} for m in config.meters}
+        self.meter_data: dict[str, dict[str, Any]] = {m.name: {} for m in meters}
         self.updated: datetime | None = None
         self.polls: dict[str, dict[str, Any]] = {}  # who polled us, for diagnostics
-        self._energy_file = config.data_dir / "energy.json"
+        self._energy_file = self.data_dir / "energy.json"
         self._next_save = 0.0
         self._http: SolarApiServer | None = None
         self._modbus: ModbusTcpServer | None = None
         self._mdns: RawMDNSAnnouncer | None = None
 
+    @property
+    def interval(self) -> float:
+        return self.config.update_interval if self.config else 5.0
+
     # ── values ────────────────────────────────────────────────────────────
 
     def _value(self, name: str) -> float | None:
-        ref = self.config.values.get(name)
+        """A configured value; several parts are added up (None only if none has a reading)."""
+        ref = self.config.values.get(name) if self.config else None
         if ref is None:
             return None
-        value = self.sources[ref.source].get(ref.field)
-        if value is None:
+        readings = [
+            self.sources[source].get(field) if source in self.sources else None for source, field in ref.parts
+        ]
+        present = [r for r in readings if r is not None]
+        if not present:
             return None
-        value *= ref.scale
+        value = sum(present) * ref.scale
         return -value if ref.invert else value
 
     def compute(self) -> None:
+        if self.config is None:
+            return
         cfg = self.config
         grid, pv, battery, soc, load = (self._value(n) for n in ("grid", "pv", "battery", "soc", "load"))
         if load is None and grid is not None:
@@ -92,7 +122,7 @@ class Bridge:
     async def update(self) -> None:
         await asyncio.gather(*(s.refresh() for s in self.sources.values()))
         self.compute()
-        if time.monotonic() >= self._next_save:
+        if self.config and time.monotonic() >= self._next_save:
             self._next_save = time.monotonic() + SAVE_INTERVAL
             await asyncio.get_running_loop().run_in_executor(None, self.save_energy)
 
@@ -111,6 +141,8 @@ class Bridge:
             counters.restore(stored.get("meters", {}).get(name))
 
     def save_energy(self) -> None:
+        if self.config is None:
+            return
         data = {
             "main": self.energy.snapshot(),
             "meters": {n: c.snapshot() for n, c in self.meter_energy.items()},
@@ -120,12 +152,14 @@ class Bridge:
         tmp.write_text(json.dumps(data))
         os.replace(tmp, self._energy_file)  # atomic: a power cut never leaves half a file
 
-    # ── web page ──────────────────────────────────────────────────────────
+    # ── status for the web page ───────────────────────────────────────────
 
     def state(self) -> dict[str, Any]:
         now = time.monotonic()
+        cfg = self.config
         return {
-            "name": self.config.serial,
+            "configured": cfg is not None,
+            "name": cfg.serial if cfg else "Solar Bridge",
             "updated": self.updated.isoformat() if self.updated else None,
             "values": self.values,
             "energy": {"pv_today_wh": self.data.get("E_Day"), "grid_import_wh": self.data.get("_tot_wh_imp"),
@@ -134,21 +168,17 @@ class Bridge:
                 {"name": m.name, "unit_id": m.unit_id, "role": m.role,
                  "power": self.meter_data[m.name].get("P_Grid"),
                  "last_read_s": self._age(self._modbus.last_request.get(m.unit_id), now) if self._modbus else None}
-                for m in self.config.meters
+                for m in (cfg.meters if cfg else [])
             ],
+            "wattpilot": bool(cfg and cfg.wattpilot),
             "clients": {ip: {"path": p["path"], "age_s": self._age(p["at"], now)} for ip, p in self.polls.items()},
             "sources": {n: s.status() for n, s in self.sources.items()},
+            "problems": self.problems,
         }
 
     @staticmethod
     def _age(at: float | None, now: float) -> float | None:
         return None if at is None else round(now - at, 1)
-
-    async def _handle_index(self, request: web.Request) -> web.StreamResponse:
-        return web.FileResponse(STATIC / "index.html")
-
-    async def _handle_state(self, request: web.Request) -> web.Response:
-        return web.json_response(self.state())
 
     async def _track_poll(self, request: web.Request, response: web.StreamResponse) -> None:
         if request.path.startswith("/solar_api"):
@@ -157,34 +187,45 @@ class Bridge:
     # ── lifecycle ─────────────────────────────────────────────────────────
 
     async def start(self) -> None:
+        """Start serving. Raises OSError only if the web/Solar API port can't be opened."""
         cfg = self.config
         self.load_energy()
         for source in self.sources.values():
             await source.start()
         await self.update()
 
-        self._http = SolarApiServer(lambda: self.data, cfg.http_port, cfg.serial, cfg.serial)
-        self._http.app.router.add_get("/", self._handle_index)
-        self._http.app.router.add_get("/api/state", self._handle_state)
+        serial = cfg.serial if cfg else "SolarBridge"
+        self._http = SolarApiServer(lambda: self.data, self.http_port, serial, serial)
+        if self._add_routes:
+            self._add_routes(self._http.app)
         self._http.app.on_response_prepare.append(self._track_poll)
         await self._http.start()
+        if cfg is None:
+            _LOGGER.info("Not configured yet — open http://<this device>:%d/settings", self.http_port)
+            return
 
         if cfg.meters:
-            self._modbus = ModbusTcpServer(cfg.modbus_port)
+            modbus = ModbusTcpServer(cfg.modbus_port)
             for meter in cfg.meters:
-                self._modbus.meters[meter.unit_id] = SunSpecMeter(
+                modbus.meters[meter.unit_id] = SunSpecMeter(
                     lambda name=meter.name: self.meter_data[name], meter.name, meter.unit_id
                 )
-            await self._modbus.start()
+            try:
+                await modbus.start()
+                self._modbus = modbus
+            except OSError as err:
+                self.problems.append(f"Smart Meter IP (Modbus) port {cfg.modbus_port} unavailable: {err}")
+                _LOGGER.error(self.problems[-1])
 
         if cfg.wattpilot:
-            self._mdns = RawMDNSAnnouncer(cfg.name, cfg.http_port, cfg.serial, cfg.serial)
+            mdns = RawMDNSAnnouncer(cfg.name, self.http_port, cfg.serial, cfg.serial)
             try:
-                await self._mdns.async_start()
+                await mdns.async_start()
+                self._mdns = mdns
             except OSError as err:
-                _LOGGER.error("mDNS announcements failed — the Wattpilot won't find us: %s", err)
-                self._mdns = None
-        _LOGGER.info("Solar Bridge '%s' running: web page on http://%s.local:%d/", cfg.serial, cfg.name, cfg.http_port)
+                self.problems.append(f"Network announcement (mDNS) failed — the Wattpilot won't find this: {err}")
+                _LOGGER.error(self.problems[-1])
+        _LOGGER.info("Solar Bridge '%s' running on port %d", cfg.serial, self.http_port)
 
     async def stop(self) -> None:
         for stop in (
@@ -199,14 +240,3 @@ class Bridge:
                 except Exception:  # noqa: BLE001
                     _LOGGER.exception("Error while stopping")
         self.save_energy()
-
-    async def run(self, stop: asyncio.Event) -> None:
-        await self.start()
-        try:
-            while not stop.is_set():
-                try:
-                    await asyncio.wait_for(stop.wait(), self.config.update_interval)
-                except TimeoutError:
-                    await self.update()
-        finally:
-            await self.stop()

@@ -44,6 +44,8 @@ async def test_solar_api_endpoints(free_port: int) -> None:
         logger = await _get(free_port, "/solar_api/v1/GetLoggerInfo.fcgi")
         assert logger["Body"]["LoggerInfo"]["UniqueID"] == "240.MyHome"
         assert (await _get(free_port, "/solar_api/GetAPIVersion.cgi"))["CompatibilityRange"] == "1.8-1"
+        async with aiohttp.ClientSession() as session, session.get(f"http://127.0.0.1:{free_port}/favicon.ico") as r:
+            assert r.status == 404  # not a 500 with an error logged
     finally:
         await server.stop()
 

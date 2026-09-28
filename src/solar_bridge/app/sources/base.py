@@ -20,6 +20,7 @@ class Source:
         self.name = name
         self.config = config
         self.stale_after = float(config.get("stale_after", 120))
+        self.fields: dict[str, dict[str, Any]] = {}
         self.error: str | None = None
         self._values: dict[str, tuple[float, float]] = {}
 
@@ -39,6 +40,24 @@ class Source:
             if self.error != str(err):
                 _LOGGER.warning("Source %s: %s", self.name, err)
             self.error = str(err) or type(err).__name__
+
+    def read_fields(self, read) -> None:
+        """Call read(name, spec) for each field; one failing field doesn't stop the others.
+
+        read() returns a number, or None when the device reports no value (JSON null).
+        """
+        errors = []
+        for name, spec in self.fields.items():
+            try:
+                value = read(name, spec)
+            except Exception as err:  # noqa: BLE001
+                errors.append(f"{name}: {err or type(err).__name__}")
+                continue
+            if value is not None:
+                self.set(name, value)
+        if errors and len(errors) == len(self.fields):
+            raise ConnectionError("; ".join(errors))
+        self.error = "; ".join(errors) or None
 
     def set(self, field: str, value: float) -> None:
         self._values[field] = (float(value), time.monotonic())
@@ -60,6 +79,15 @@ class Source:
             "age_s": round(min(ages), 1) if ages else None,
             "values": {k: v for k, (v, _) in self._values.items()},
         }
+
+
+def number(config: dict[str, Any], key: str, default: float, kind: type = int) -> Any:
+    """A numeric setting, with an error message people can act on."""
+    value = config.get(key, default)
+    try:
+        return kind(default if value is None else value)
+    except (TypeError, ValueError):
+        raise ValueError(f"{key} must be a number (got '{value}')") from None
 
 
 def dig(data: Any, path: str) -> Any:

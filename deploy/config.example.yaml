@@ -1,5 +1,7 @@
-# Solar Bridge configuration — copy to /etc/solar-bridge/config.yaml and edit.
-# Test it with:  solar-bridge --config /etc/solar-bridge/config.yaml --check
+# OPTIONAL — most people set Solar Bridge up in its web page (http://<device>/settings).
+# Use a file instead if you prefer: copy this to /etc/solar-bridge/config.yaml
+# (needs the yaml add-on: install.sh --yaml), then restart. The web page then shows
+# the settings read-only. Test with:  solar-bridge --check
 
 name: fronius-virtual        # mDNS hostname: web page at http://fronius-virtual.local
 display_name: MyHome         # shown when pairing the Wattpilot; also the serial number
@@ -12,7 +14,7 @@ grid:
 
 # ── Where readings come from ────────────────────────────────────────────────
 sources:
-  powerwall:                 # Tesla Powerwall 2 / + / 3 via pypowerwall
+  powerwall:                 # Tesla Powerwall 2 / + / 3 (needs the tesla add-on)
     type: tesla
     host: 192.168.1.50
     password: "customer password"    # the gateway's customer login (Powerwall 2 / +)

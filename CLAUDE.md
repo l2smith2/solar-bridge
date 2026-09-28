@@ -12,10 +12,27 @@ confirmed on real hardware there).
   - `modbus.py` ModbusTcpServer + SunSpecMeter — Smart Meter IP, SunSpec model 213, many unit IDs per port.
   - `mdns.py` RawMDNSAnnouncer — `_Fronius-SE-Inverter/SmartMeter._tcp` from UDP port 5353 (Wattpilot drops others).
   - `meter.py` per-phase model shared by HTTP and Modbus. `energy.py` counters (caller persists snapshot()).
-- `src/solar_bridge/app/` — standalone app: `config.py` (YAML), `sources/` (tesla, http_json, mqtt, modbus),
-  `bridge.py` (poll → convert → serve, energy.json persistence), `static/index.html` (power-flow page),
-  `__main__.py` (`solar-bridge --config … [--check]`).
-- `deploy/` — example config, systemd unit (CAP_NET_BIND_SERVICE, DynamicUser), `install.sh`. `Dockerfile` needs host networking.
+- `src/solar_bridge/app/` — standalone app:
+  - `web.py` App: owns the web routes + settings API, (re)creates a `Bridge` when settings are saved (no process
+    restart); falls back to setup mode if the new settings can't open their port, so the page stays reachable.
+  - `bridge.py` Bridge: one running configuration (sources → values → Solar API / Modbus / mDNS, energy.json).
+    `config=None` = setup mode (web page only). Non-fatal start problems go in `problems` (shown on the page).
+  - `config.py` parse(dict) — same schema from the page's JSON or an optional YAML file. Values may be a list of
+    `source.field` (added up; missing parts skipped, None only if all missing).
+  - `sources/` tesla (add-on), http_json, mqtt, modbus (own minimal client). `read_fields()` = one bad field
+    doesn't drop the others; JSON null = no reading, not an error.
+  - `templates.py` device templates for the page (`{placeholders}` filled by the page from `ask` fields).
+  - `addons.py` optional packages pip-installed into `<data_dir>/addons` from the page (the only writable place
+    under the hardened systemd unit), appended to sys.path — no restart.
+  - `static/index.html` power flow; `static/settings.html` settings (plain JS, no build, DOM built with h(), no innerHTML
+    of user text).
+- Settings precedence: `--config FILE` > `$SOLAR_BRIDGE_CONFIG` > `/etc/solar-bridge/config.yaml` if present >
+  `<data_dir>/config.json` (written by the page, mode 600). File-managed settings are read-only in the page.
+- Secrets (password, gw_pwd, token) are masked as `••••••••` in GET /api/config and restored on save.
+  Optional settings password: pbkdf2 hash in config; page sends Basic auth itself (no WWW-Authenticate popup).
+- Extras: `app` (aiomqtt — light, pure Python; fine on a Pi 2), `tesla` (pypowerwall, heavy), `yaml`, `all`.
+- `deploy/` — `install.sh [--tesla] [--yaml]`, systemd unit (CAP_NET_BIND_SERVICE, DynamicUser, StateDirectory),
+  optional example YAML. `Dockerfile` (`--build-arg EXTRAS=app,tesla`) needs host networking.
 
 ## Sign conventions
 - Config/`values`/web page use natural signs: grid + importing, pv + producing, battery + discharging, load + consuming.
@@ -28,8 +45,12 @@ confirmed on real hardware there).
 - W register at wire address 40097; Hz float at 40095; unit 240 accepted by a SnapIN.
 - Python 3.12+: `Server.wait_closed()` waits for clients and Fronius never disconnects → ModbusTcpServer.stop() closes clients first.
 - mDNS packets must stay < 400 bytes; answer from source port 5353, IPv4 and IPv6.
+- The Solar API error middleware must re-raise `web.HTTPException` — otherwise every 404 (favicon, scanners)
+  became a logged 500. (The HA integration's copy has the same bug.)
 
 ## Testing
 - `pip install -e ".[app,test]" && pytest` — core protocol tests (ported from the HA repo), sources against local
-  servers (the modbus source reads our own ModbusTcpServer), end-to-end bridge run.
+  servers (the modbus source reads our own ModbusTcpServer), templates, and `test_web.py` driving the real app over
+  HTTP: setup from scratch, save/reload, secrets, password, busy-port fallback, add-on install (pip faked).
+- Manual UI check: `solar-bridge --data-dir ./data --port 8080`, open /settings (Playwright + Chromium work here).
 - CI: Python 3.11 (Raspberry Pi OS Bookworm) and 3.13. Tags `v*` publish to PyPI (trusted publishing).

@@ -1,0 +1,625 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 16 16%27%3E%3Ccircle cx=%278%27 cy=%278%27 r=%276%27 fill=%27%23e0a100%27/%3E%3C/svg%3E">
+<title>Solar Bridge · Settings</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #fff; --text: #1d2330; --muted: #6b7384; --line: #d9dde5; --field: #fff;
+    --accent: #3a7bd5; --ok: #2e9d5b; --bad: #c8403a; --warn-bg: #fff6e0; --warn: #7a5a00;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #12151b; --card: #1b2029; --text: #e7eaf0; --muted: #98a0b0; --line: #313846; --field: #12151b;
+      --accent: #5b9bf0; --ok: #43c079; --bad: #ef6a63; --warn-bg: #3a3014; --warn: #f2d27a; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 16px 16px 96px; }
+  header { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+  h1 { font-size: 20px; margin: 4px 0 12px; }
+  h2 { font-size: 16px; margin: 0 0 4px; }
+  h3 { font-size: 14px; margin: 16px 0 6px; }
+  a { color: var(--accent); }
+  .muted { color: var(--muted); font-size: 13px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+  .banner { border-radius: 10px; padding: 10px 14px; margin-bottom: 12px; font-size: 14px; }
+  .banner.info { background: var(--warn-bg); color: var(--warn); }
+  .banner.error { background: color-mix(in srgb, var(--bad) 15%, transparent); color: var(--bad); }
+  .banner.ok { background: color-mix(in srgb, var(--ok) 15%, transparent); color: var(--ok); }
+  fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+  label.f { display: block; margin: 10px 0; }
+  label.f > span { display: block; font-size: 13px; color: var(--muted); margin-bottom: 3px; }
+  input, select { font: inherit; color: var(--text); background: var(--field); border: 1px solid var(--line);
+    border-radius: 8px; padding: 7px 9px; width: 100%; max-width: 100%; }
+  input[type=checkbox] { width: auto; margin-right: 6px; }
+  label.check { display: flex; align-items: center; margin: 10px 0; }
+  button { font: inherit; border: 1px solid var(--line); background: var(--card); color: var(--text);
+    border-radius: 8px; padding: 7px 12px; cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  button.link { border: 0; background: none; color: var(--accent); padding: 4px 6px; }
+  button:disabled { opacity: .5; cursor: default; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+  @media (max-width: 560px) { .grid2 { grid-template-columns: 1fr; } }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th { text-align: left; font-weight: 600; font-size: 12px; color: var(--muted); padding: 4px 4px; }
+  td { padding: 4px; vertical-align: middle; border-top: 1px solid var(--line); }
+  .scroll { overflow-x: auto; }
+  .device { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+  .device:first-child { border-top: 0; }
+  .dot::before { content: "● "; }
+  .dot.ok::before { color: var(--ok); } .dot.bad::before { color: var(--bad); } .dot.new::before { color: var(--muted); }
+  .editor { border: 1px dashed var(--line); border-radius: 10px; padding: 12px; margin: 12px 0; }
+  .value { display: grid; grid-template-columns: 150px 1fr auto; gap: 6px 10px; align-items: center; padding: 8px 0;
+    border-top: 1px solid var(--line); }
+  .value:first-child { border-top: 0; }
+  .value .preview { grid-column: 2 / 4; font-size: 13px; color: var(--muted); }
+  @media (max-width: 560px) { .value { grid-template-columns: 1fr auto; } .value .name { grid-column: 1 / 3; }
+    .value .preview { grid-column: 1 / 3; } }
+  .result { font-size: 13px; margin-top: 8px; white-space: pre-wrap; }
+  .result.ok { color: var(--ok); } .result.bad { color: var(--bad); }
+  .savebar { position: fixed; left: 0; right: 0; bottom: 0; background: var(--card); border-top: 1px solid var(--line);
+    padding: 10px 16px; }
+  .savebar .inner { max-width: 760px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  pre.log { font-size: 11px; max-height: 120px; overflow: auto; background: var(--bg); padding: 6px; border-radius: 6px; }
+</style>
+</head>
+<body>
+<main>
+  <header><h1>Settings</h1><a href="/">← Power flow</a></header>
+  <div id="banners"></div>
+
+  <section class="card" id="login" hidden>
+    <h2>Settings password</h2>
+    <p class="muted">These settings are protected.</p>
+    <form id="login-form" class="row"><input type="password" id="login-pw" autocomplete="current-password"
+      placeholder="Password" style="max-width:260px"><button class="primary">Unlock</button></form>
+  </section>
+
+  <fieldset id="editor" hidden>
+    <section class="card">
+      <h2>1 · Devices</h2>
+      <p class="muted">Where readings come from — your battery, inverter or energy meter. Add as many as you need.</p>
+      <div id="devices"></div>
+      <div id="device-form"></div>
+      <button id="add-device" type="button">+ Add a device</button>
+    </section>
+
+    <section class="card">
+      <h2>2 · What the readings mean</h2>
+      <p class="muted">Pick the reading for each value and check the live description. If one reads the wrong way round, tick Invert.</p>
+      <div id="values"></div>
+    </section>
+
+    <section class="card">
+      <h2>3 · Wattpilot &amp; Fronius</h2>
+      <div id="general"></div>
+      <h3>Smart Meter IPs for a Fronius inverter</h3>
+      <p class="muted">Optional. Add each one on the Fronius as a Smart Meter IP at this device's address, with the same unit ID and position.</p>
+      <div id="meters"></div>
+      <button id="add-meter" type="button">+ Add a meter</button>
+    </section>
+
+    <section class="card">
+      <h2>4 · Settings password</h2>
+      <div id="security"></div>
+    </section>
+  </fieldset>
+</main>
+
+<div class="savebar" id="savebar" hidden><div class="inner">
+  <span id="save-status" class="muted"></span>
+  <button id="save" class="primary" type="button">Save &amp; apply</button>
+</div></div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const TESLA_FIELDS = ["grid", "solar", "battery", "load", "soc"];
+const VALUES = [
+  {key: "grid", label: "Grid power", pos: "importing from the grid", neg: "exporting to the grid", required: true},
+  {key: "pv", label: "Solar power", pos: "producing", neg: "consuming"},
+  {key: "battery", label: "Battery power", pos: "discharging", neg: "charging"},
+  {key: "soc", label: "Battery charge", unit: "%"},
+  {key: "load", label: "Home consumption", pos: "the home is using", neg: "the home is feeding back",
+   hint: "Leave as “not used” to work it out from grid + solar + battery."},
+];
+const ROLES = [["grid", "Feed-in point (grid meter)"], ["generator", "External generator (e.g. AC battery)"],
+               ["load", "Consumption path / subload"]];
+const MODBUS_TYPES = ["int16", "uint16", "int32", "uint32", "float32"];
+const CONNECTION = {
+  tesla: [["host", "IP address or hostname"], ["password", "Gateway customer password", true], ["email", "Email"],
+          ["gw_pwd", "Powerwall 3 only: gateway Wi-Fi password", true], ["timezone", "Time zone"]],
+  http_json: [["url", "URL"], ["username", "Username (optional)"], ["password", "Password (optional)", true],
+              ["token", "Bearer token (optional)", true]],
+  mqtt: [["host", "Broker IP address or hostname"], ["port", "Port"], ["username", "Username (optional)"],
+         ["password", "Password (optional)", true]],
+  modbus: [["host", "IP address or hostname"], ["port", "Port"], ["unit", "Unit ID"]],
+};
+const READING_COLUMNS = {
+  http_json: [["path", "Where in the JSON (e.g. data.power)"], ["scale", "Scale"]],
+  mqtt: [["topic", "Topic"], ["path", "JSON path (optional)"], ["scale", "Scale"]],
+  modbus: [["address", "Address"], ["type", "Type"], ["scale", "Scale"], ["scale_register", "SunSpec scale reg."],
+           ["input", "Input reg."], ["swap_words", "Swap words"]],
+};
+
+let cfg = null, original = "", templates = [], addonState = {}, live = {}, tested = {};
+let readOnly = false, hasPassword = false, editing = null, previews = {};
+let newPassword = "", removePassword = false;
+let auth = sessionStorage.getItem("sb-auth") || "";
+
+function h(tag, attrs, ...children) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v == null || v === false) continue;
+    if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+    else if (k === "class") el.className = v;
+    else if (k === "value") el.value = v;
+    else if (k === "checked") el.checked = !!v;
+    else el.setAttribute(k, v === true ? "" : v);
+  }
+  for (const c of children.flat(Infinity)) if (c != null && c !== false) el.append(c.nodeType ? c : String(c));
+  return el;
+}
+const kw = (w) => Math.abs(w) >= 1000 ? (Math.abs(w) / 1000).toFixed(2) + " kW" : Math.round(Math.abs(w)) + " W";
+const clone = (o) => JSON.parse(JSON.stringify(o));
+const basic = (pw) => "Basic " + btoa(unescape(encodeURIComponent("admin:" + pw)));
+
+async function api(path, options = {}) {
+  const headers = {"Content-Type": "application/json", ...(auth ? {Authorization: auth} : {})};
+  const r = await fetch(path, {...options, headers, cache: "no-store"});
+  if (r.status === 401) { showLogin(); throw new Error("locked"); }
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(body.error || r.statusText);
+  return body;
+}
+
+function banner(text, kind = "info") {
+  $("banners").append(h("div", {class: "banner " + kind}, text));
+}
+
+function showLogin() {
+  $("login").hidden = false; $("editor").hidden = true; $("savebar").hidden = true;
+}
+$("login-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  auth = basic($("login-pw").value);
+  sessionStorage.setItem("sb-auth", auth);
+  $("login").hidden = true;
+  await load();
+});
+
+// ── config model ──────────────────────────────────────────────────────────
+function normValue(v) {
+  if (v == null || v === "" || (Array.isArray(v) && !v.length)) return null;
+  if (typeof v === "string" || Array.isArray(v)) v = {from: v};
+  return {from: [].concat(v.from), invert: !!v.invert, scale: v.scale ?? 1};
+}
+function serialize() {
+  const out = clone(cfg);
+  out.values = {};
+  for (const [k, v] of Object.entries(cfg.values)) {
+    if (!v) continue;
+    out.values[k] = {from: v.from.length === 1 ? v.from[0] : v.from, invert: v.invert, ...(v.scale !== 1 ? {scale: v.scale} : {})};
+  }
+  if (newPassword) out.settings_password = newPassword;
+  if (removePassword) out.remove_settings_password = true;
+  return out;
+}
+function fieldNames(src) { return src.type === "tesla" ? TESLA_FIELDS : Object.keys(src.fields || {}); }
+function reading(source, field) {
+  const t = tested[source]; if (t && field in t) return t[field];
+  const l = live[source]; return l && l.values && field in l.values ? l.values[field] : null;
+}
+function valueOf(v) {
+  if (!v) return null;
+  const parts = v.from.map((ref) => { const [s, ...f] = ref.split("."); return reading(s, f.join(".")); })
+    .filter((x) => x != null);
+  if (!parts.length) return null;
+  const sum = parts.reduce((a, b) => a + b, 0) * v.scale;
+  return v.invert ? -sum : sum;
+}
+
+// ── load ──────────────────────────────────────────────────────────────────
+async function load() {
+  $("banners").replaceChildren();
+  let body, state;
+  try {
+    [body, templates, addonState, state] = await Promise.all([
+      api("api/config"), api("api/templates"), api("api/addons"), api("api/state")]);
+  } catch (e) { if (e.message !== "locked") banner("Could not load settings: " + e.message, "error"); return; }
+  readOnly = !!body.managed_by_file;
+  hasPassword = body.has_settings_password;
+  const raw = body.config || {};
+  cfg = {
+    name: raw.name || "fronius-virtual", display_name: raw.display_name || "",
+    update_interval: raw.update_interval ?? 5, wattpilot: raw.wattpilot ?? true,
+    grid: {phases: 1, breaker_amps: 32, ...(raw.grid || {})},
+    sources: raw.sources || {}, values: {}, meters: raw.meters || [],
+    ...(raw.http_port ? {http_port: raw.http_port} : {}), ...(raw.modbus_port ? {modbus_port: raw.modbus_port} : {}),
+  };
+  for (const v of VALUES) cfg.values[v.key] = normValue((raw.values || {})[v.key]);
+  original = JSON.stringify(serialize());
+  live = state.sources || {};
+
+  if (body.error) banner("The saved settings have a problem: " + body.error, "error");
+  if (readOnly) banner("These settings come from " + body.managed_by_file + " — edit that file to change them.");
+  if (!state.configured && !readOnly) banner("Welcome! Add the device(s) that measure your grid, solar and battery, check what the readings mean, then save.");
+  for (const p of state.problems || []) banner(p, "error");
+
+  $("editor").hidden = false; $("editor").disabled = readOnly;
+  $("savebar").hidden = readOnly;
+  renderAll();
+}
+
+function renderAll() { renderDevices(); renderValues(); renderGeneral(); renderMeters(); renderSecurity(); }
+
+// ── devices ───────────────────────────────────────────────────────────────
+function renderDevices() {
+  const names = Object.keys(cfg.sources);
+  $("devices").replaceChildren(...(names.length ? names.map((name) => {
+    const src = cfg.sources[name], st = live[name], t = tested[name];
+    const saved = st && JSON.stringify(src) === JSON.stringify((JSON.parse(original).sources || {})[name]);
+    const vals = (saved ? st.values : t) || {};
+    const summary = Object.entries(vals).map(([k, v]) => `${k} ${Math.round(v * 10) / 10}`).join(" · ");
+    const cls = saved ? (st.ok ? "dot ok" : "dot bad") : "dot new";
+    const note = saved ? (st.error || summary || "waiting for readings") : "not saved yet" + (summary ? " · " + summary : "");
+    return h("div", {class: "device"},
+      h("div", {}, h("div", {class: cls}, h("b", {}, name), " ", h("span", {class: "muted"}, src.type)),
+        h("div", {class: "muted"}, note)),
+      h("div", {class: "row"},
+        h("button", {type: "button", class: "link", onclick: () => openEditor(name)}, "Edit"),
+        h("button", {type: "button", class: "link", onclick: () => removeDevice(name)}, "Remove")));
+  }) : [h("p", {class: "muted"}, "No devices yet.")]));
+}
+
+function removeDevice(name) {
+  if (!confirm(`Remove ${name}?`)) return;
+  delete cfg.sources[name];
+  for (const k in cfg.values) {
+    const v = cfg.values[k]; if (!v) continue;
+    v.from = v.from.filter((r) => !r.startsWith(name + "."));
+    if (!v.from.length) cfg.values[k] = null;
+  }
+  renderAll();
+}
+
+$("add-device").addEventListener("click", () => openEditor(null));
+
+function uniqueName(base) {
+  let name = base.replace(/[^A-Za-z0-9_-]/g, "-"), i = 2;
+  while (cfg.sources[name]) name = `${base}-${i++}`;
+  return name;
+}
+
+function openEditor(name) {
+  const src = name ? clone(cfg.sources[name]) : null;
+  editing = {oldName: name, name: name || "", template: null, src, ask: {}, rows: src ? toRows(src) : [], result: null};
+  $("add-device").hidden = true;
+  renderEditor();
+}
+function closeEditor() { editing = null; $("device-form").replaceChildren(); $("add-device").hidden = false; }
+
+function toRows(src) {
+  return Object.entries(src.fields || {}).map(([n, spec]) =>
+    ({name: n, ...(typeof spec === "object" ? spec : (src.type === "mqtt" ? {topic: spec} : {path: spec}))}));
+}
+function fromRows(rows) {
+  const fields = {};
+  for (const r of rows) {
+    if (!r.name) continue;
+    const spec = {};
+    for (const [k, v] of Object.entries(r)) if (k !== "name" && v !== "" && v != null && v !== false) spec[k] = v;
+    fields[r.name] = spec;
+  }
+  return fields;
+}
+
+function fillTemplate(obj, ask) {
+  if (typeof obj === "string") return obj.replace(/\{(\w+)\}/g, (_, k) => ask[k] ?? "");
+  if (Array.isArray(obj)) return obj.map((o) => fillTemplate(o, ask));
+  if (obj && typeof obj === "object") return Object.fromEntries(Object.entries(obj).map(([k, v]) => [k, fillTemplate(v, ask)]));
+  return obj;
+}
+
+function currentSource() {
+  let src;
+  if (editing.template) {
+    const t = editing.template, used = JSON.stringify(t.source);
+    src = fillTemplate(clone(t.source), editing.ask);
+    for (const a of t.ask || []) {
+      const v = editing.ask[a.key];
+      if (!used.includes("{" + a.key + "}") && v !== "" && v != null) src[a.key] = v;
+    }
+  } else src = clone(editing.src);
+  for (const k of Object.keys(src)) if (src[k] === "") delete src[k];
+  if (src.type !== "tesla") src.fields = fromRows(editing.rows);
+  return src;
+}
+
+function renderEditor() {
+  const e = editing, box = h("div", {class: "editor"});
+  if (!e.src && !e.template) {
+    const groups = [...new Set(templates.map((t) => t.group))];
+    box.append(h("label", {class: "f"}, h("span", {}, "What kind of device?"),
+      h("select", {onchange: (ev) => pickTemplate(ev.target.value)},
+        h("option", {value: ""}, "Choose your device…"),
+        groups.map((g) => h("optgroup", {label: g},
+          templates.filter((t) => t.group === g).map((t) => h("option", {value: t.id}, t.label)))))));
+    box.append(h("div", {class: "row"}, h("button", {type: "button", onclick: closeEditor}, "Cancel")));
+    $("device-form").replaceChildren(box);
+    return;
+  }
+  const type = e.template ? e.template.source.type : e.src.type;
+  box.append(h("h3", {style: "margin-top:0"}, e.template ? e.template.label : `Edit ${e.oldName}`));
+  if (e.template && e.template.note) box.append(h("p", {class: "muted"}, e.template.note));
+  box.append(h("label", {class: "f"}, h("span", {}, "Name (letters, digits, - and _)"),
+    h("input", {value: e.name, oninput: (ev) => { e.name = ev.target.value; }})));
+
+  const conn = h("div", {class: "grid2"});
+  if (e.template) {
+    for (const a of e.template.ask || []) {
+      if (!(a.key in e.ask)) e.ask[a.key] = a.default === "browser"
+        ? Intl.DateTimeFormat().resolvedOptions().timeZone : (a.default ?? "");
+      conn.append(h("label", {class: "f"}, h("span", {}, a.label + (a.required ? "" : "")),
+        h("input", {type: a.secret ? "password" : "text", value: e.ask[a.key], autocomplete: "off",
+          oninput: (ev) => { e.ask[a.key] = ev.target.value; }})));
+    }
+  } else {
+    for (const [key, label, secret] of CONNECTION[type] || []) {
+      conn.append(h("label", {class: "f"}, h("span", {}, label),
+        h("input", {type: secret ? "password" : "text", value: e.src[key] ?? "", autocomplete: "off",
+          oninput: (ev) => { e.src[key] = ev.target.value; }})));
+    }
+  }
+  box.append(conn);
+
+  if (type === "tesla") box.append(addonNotice("tesla"));
+  if (READING_COLUMNS[type]) box.append(readingsTable(type));
+
+  const result = h("div", {class: "result"});
+  if (e.result) { result.className = "result " + (e.result.ok ? "ok" : "bad"); result.textContent = e.result.text; }
+  box.append(h("div", {class: "row", style: "margin-top:10px"},
+    h("button", {type: "button", onclick: testDevice}, "Test"),
+    h("button", {type: "button", class: "primary", onclick: applyDevice}, e.oldName ? "Update device" : "Add device"),
+    h("button", {type: "button", onclick: closeEditor}, "Cancel")), result);
+  $("device-form").replaceChildren(box);
+}
+
+function pickTemplate(id) {
+  const t = templates.find((x) => x.id === id);
+  if (!t) return;
+  editing.template = t;
+  editing.name = uniqueName(t.id);
+  editing.rows = toRows(t.source);
+  renderEditor();
+}
+
+function readingsTable(type) {
+  const cols = READING_COLUMNS[type], e = editing;
+  const cell = (row, key) => {
+    if (key === "type") return h("select", {onchange: (ev) => { row.type = ev.target.value; }},
+      MODBUS_TYPES.map((t) => h("option", {value: t, selected: (row.type || "int16") === t}, t)));
+    if (key === "input" || key === "swap_words") return h("input", {type: "checkbox", checked: row[key],
+      onchange: (ev) => { row[key] = ev.target.checked; }});
+    return h("input", {value: row[key] ?? "", size: key === "scale" ? 4 : 10, oninput: (ev) => {
+      const v = ev.target.value; row[key] = ["scale", "address", "scale_register"].includes(key) && v !== "" && !isNaN(v) ? Number(v) : v; }});
+  };
+  const table = h("table", {},
+    h("tr", {}, h("th", {}, "Reading"), cols.map(([, label]) => h("th", {}, label)), h("th")),
+    e.rows.map((row, i) => h("tr", {},
+      h("td", {}, h("input", {value: row.name, size: 8, placeholder: "e.g. grid", oninput: (ev) => { row.name = ev.target.value; }})),
+      cols.map(([key]) => h("td", {}, cell(row, key))),
+      h("td", {}, h("button", {type: "button", class: "link", onclick: () => { e.rows.splice(i, 1); renderEditor(); }}, "✕")))));
+  return h("div", {}, h("h3", {}, "Readings"), h("div", {class: "scroll"}, table),
+    h("button", {type: "button", class: "link", onclick: () => { e.rows.push({name: ""}); renderEditor(); }}, "+ Add a reading"));
+}
+
+async function testDevice() {
+  const e = editing, src = currentSource();
+  e.result = {ok: true, text: "Testing…"}; renderEditor();
+  try {
+    const r = await api("api/test-source", {method: "POST", body: JSON.stringify({name: e.name || "test", config: src})});
+    const vals = Object.entries(r.values || {}).map(([k, v]) => `${k} = ${Math.round(v * 100) / 100}`).join("\n");
+    e.result = {ok: r.ok, text: (r.ok ? "✓ Connected\n" : "✗ " + (r.error || "no readings") + "\n") + vals};
+    if (Object.keys(r.values || {}).length) tested[e.name] = r.values;
+    updatePreviews();
+  } catch (err) { e.result = {ok: false, text: "✗ " + err.message}; }
+  renderEditor();
+}
+
+function applyDevice() {
+  const e = editing, name = (e.name || "").trim();
+  if (!/^[A-Za-z0-9_-]+$/.test(name)) { e.result = {ok: false, text: "✗ Give the device a name (letters, digits, - and _)"}; return renderEditor(); }
+  if (name !== e.oldName && cfg.sources[name]) { e.result = {ok: false, text: "✗ Another device already has that name"}; return renderEditor(); }
+  const src = currentSource();
+  if (e.oldName && name !== e.oldName) {
+    delete cfg.sources[e.oldName];
+    for (const v of Object.values(cfg.values)) if (v) v.from = v.from.map((r) => r.startsWith(e.oldName + ".") ? name + r.slice(e.oldName.length) : r);
+    if (tested[e.oldName]) tested[name] = tested[e.oldName];
+  }
+  cfg.sources[name] = src;
+  if (e.template) {   // fill in the template's suggested meanings where nothing is chosen yet
+    for (const [key, sug] of Object.entries(e.template.values || {})) {
+      if (cfg.values[key]) continue;
+      const n = normValue(sug);
+      cfg.values[key] = {...n, from: n.from.map((f) => `${name}.${f}`)};
+    }
+  }
+  closeEditor(); renderAll();
+}
+
+// ── add-ons ───────────────────────────────────────────────────────────────
+function addonNotice(name) {
+  const a = addonState[name];
+  if (!a) return null;
+  if (a.installed) return h("p", {class: "result ok"}, `✓ ${a.label} support is installed.`);
+  const box = h("div", {class: "banner info"},
+    a.state === "installing" ? `Installing ${a.label} support… this can take a few minutes on older hardware.`
+      : `${a.label} support isn't installed yet. ${a.note}`);
+  if (a.state !== "installing") box.append(" ", h("button", {type: "button", onclick: () => installAddon(name)},
+    a.state === "failed" ? "Try again" : `Install ${a.label} support`));
+  if (a.state === "failed" && a.log.length) box.append(h("pre", {class: "log"}, a.log.join("\n")));
+  if (a.state === "installing" && a.log.length) box.append(h("div", {class: "muted"}, a.log[a.log.length - 1]));
+  return box;
+}
+async function installAddon(name) {
+  try { await api(`api/addons/${name}/install`, {method: "POST"}); } catch (e) { return alert(e.message); }
+  const poll = async () => {
+    addonState = await api("api/addons");
+    if (editing) renderEditor();
+    if (addonState[name].state === "installing") setTimeout(poll, 2000);
+  };
+  poll();
+}
+
+// ── values ────────────────────────────────────────────────────────────────
+function renderValues() {
+  previews = {};
+  const options = [];
+  for (const [s, src] of Object.entries(cfg.sources)) for (const f of fieldNames(src)) options.push(`${s}.${f}`);
+  $("values").replaceChildren(...VALUES.map((meta) => {
+    const v = cfg.values[meta.key];
+    const current = v ? v.from.join(" + ") : "";
+    const select = h("select", {onchange: (ev) => {
+        const val = ev.target.value;
+        cfg.values[meta.key] = val ? {from: val.split(" + "), invert: v ? v.invert : false, scale: v ? v.scale : 1} : null;
+        renderValues(); renderMeters();
+      }},
+      h("option", {value: ""}, meta.required ? "— choose —" : "— not used —"),
+      [...new Set([...options, ...(current && !options.includes(current) ? [current] : [])])]
+        .map((o) => h("option", {value: o, selected: o === current}, o.includes(" + ") ? "sum: " + o : o.replace(".", " · "))));
+    const invert = h("label", {class: "check", style: "margin:0"}, h("input", {type: "checkbox", checked: v && v.invert,
+      disabled: !v, onchange: (ev) => { v.invert = ev.target.checked; updatePreviews(); }}), "Invert");
+    previews[meta.key] = h("div", {class: "preview"});
+    return h("div", {class: "value"}, h("div", {class: "name"}, h("b", {}, meta.label)), select, invert, previews[meta.key]);
+  }));
+  updatePreviews();
+}
+
+function updatePreviews() {
+  for (const meta of VALUES) {
+    const el = previews[meta.key]; if (!el) continue;
+    const v = cfg.values[meta.key], x = valueOf(v);
+    let text;
+    if (!v) text = meta.hint || (meta.required ? "Required." : "");
+    else if (x == null) text = "No reading yet — press Test on the device, or save.";
+    else if (meta.unit) text = `Now: ${Math.round(x)} ${meta.unit}`;
+    else if (Math.abs(x) < 1) text = "Now: 0 W";
+    else text = `Now: ${x >= 0 ? meta.pos : meta.neg} ${kw(x)}`;
+    el.textContent = text;
+  }
+}
+
+// ── general & meters ──────────────────────────────────────────────────────
+function field(label, input, hint) {
+  return h("label", {class: "f"}, h("span", {}, label), input, hint ? h("span", {class: "muted"}, hint) : null);
+}
+function renderGeneral() {
+  const num = (obj, key, attrs = {}) => h("input", {type: "number", value: obj[key] ?? "", ...attrs,
+    oninput: (ev) => { obj[key] = ev.target.value === "" ? undefined : Number(ev.target.value); }});
+  $("general").replaceChildren(
+    h("label", {class: "check"}, h("input", {type: "checkbox", checked: cfg.wattpilot,
+      onchange: (ev) => { cfg.wattpilot = ev.target.checked; }}), "Pair with a Fronius Wattpilot (announce a virtual inverter)"),
+    h("div", {class: "grid2"},
+      field("Display name", h("input", {value: cfg.display_name, placeholder: "e.g. MyHome",
+        oninput: (ev) => { cfg.display_name = ev.target.value; }}), "Shown when pairing the Wattpilot."),
+      field("Network name", h("input", {value: cfg.name, oninput: (ev) => { cfg.name = ev.target.value; }}),
+        `This page will be at http://${cfg.name || "…"}.local/`),
+      field("Grid connection", h("select", {onchange: (ev) => { cfg.grid.phases = Number(ev.target.value); }},
+        h("option", {value: 1, selected: cfg.grid.phases == 1}, "Single phase"),
+        h("option", {value: 3, selected: cfg.grid.phases == 3}, "Three phase"))),
+      field("Main breaker (A)", num(cfg.grid, "breaker_amps", {min: 6, max: 125}), "The Wattpilot never draws more than this."),
+      field("Read devices every (seconds)", num(cfg, "update_interval", {min: 1, max: 300}))),
+    h("details", {}, h("summary", {class: "muted"}, "Advanced"),
+      h("div", {class: "grid2"},
+        field("Web / Solar API port", num(cfg, "http_port", {placeholder: 80}), "The Wattpilot expects 80."),
+        field("Smart Meter IP (Modbus) port", num(cfg, "modbus_port", {placeholder: 502}), "Fronius expects 502."))));
+}
+
+function renderMeters() {
+  const powerValues = VALUES.filter((v) => v.key !== "soc");
+  $("meters").replaceChildren(...(cfg.meters.length ? cfg.meters.map((m, i) => h("div", {class: "editor"},
+    h("div", {class: "grid2"},
+      field("Name", h("input", {value: m.name, oninput: (ev) => { m.name = ev.target.value; }})),
+      field("Unit ID (Modbus address on the Fronius)", h("input", {type: "number", value: m.unit_id, min: 1, max: 247,
+        oninput: (ev) => { m.unit_id = Number(ev.target.value); }})),
+      field("Measures", h("select", {onchange: (ev) => { m.value = ev.target.value; }},
+        powerValues.map((v) => h("option", {value: v.key, selected: m.value === v.key}, v.label)))),
+      field("Position on the Fronius", h("select", {onchange: (ev) => { m.role = ev.target.value; }},
+        ROLES.map(([k, l]) => h("option", {value: k, selected: (m.role || "grid") === k}, l))))),
+    h("div", {class: "row", style: "justify-content:space-between"},
+      h("label", {class: "check", style: "margin:0"}, h("input", {type: "checkbox", checked: m.invert,
+        onchange: (ev) => { m.invert = ev.target.checked; }}), "Invert (if Fronius shows it backwards)"),
+      h("button", {type: "button", class: "link", onclick: () => { cfg.meters.splice(i, 1); renderMeters(); }}, "Remove"))))
+    : [h("p", {class: "muted"}, "None.")]));
+}
+$("add-meter").addEventListener("click", () => {
+  const used = cfg.meters.map((m) => m.unit_id);
+  let unit = 240; while (used.includes(unit)) unit++;
+  const first = !cfg.meters.length;
+  cfg.meters.push(first ? {name: "grid", unit_id: unit, value: "grid", role: "grid"}
+    : {name: "ac-battery", unit_id: unit, value: "battery", role: "generator"});
+  renderMeters();
+});
+
+// ── security ──────────────────────────────────────────────────────────────
+function renderSecurity() {
+  const input = h("input", {type: "password", autocomplete: "new-password", style: "max-width:260px",
+    placeholder: hasPassword ? "New password" : "Password", value: newPassword,
+    oninput: (ev) => { newPassword = ev.target.value; }});
+  $("security").replaceChildren(
+    h("p", {class: "muted"}, hasPassword ? "A password protects these settings." :
+      "Anyone on your network can open and change these settings. Set a password to prevent that."),
+    h("div", {class: "row"}, input, hasPassword ? h("label", {class: "check", style: "margin:0"},
+      h("input", {type: "checkbox", checked: removePassword, onchange: (ev) => { removePassword = ev.target.checked; }}),
+      "Remove password") : null));
+}
+
+// ── save ──────────────────────────────────────────────────────────────────
+$("save").addEventListener("click", async () => {
+  if (editing) { $("save-status").textContent = "Finish or cancel the device you're editing first."; return; }
+  const payload = serialize();
+  $("save").disabled = true; $("save-status").textContent = "Saving…";
+  try {
+    await api("api/config", {method: "POST", body: JSON.stringify(payload)});
+  } catch (e) {
+    $("save").disabled = false;
+    $("save-status").textContent = "";
+    $("banners").replaceChildren(); banner("Not saved: " + e.message, "error"); window.scrollTo(0, 0);
+    return;
+  }
+  if (payload.settings_password) { auth = basic(payload.settings_password); sessionStorage.setItem("sb-auth", auth); }
+  if (payload.remove_settings_password) { auth = ""; sessionStorage.removeItem("sb-auth"); }
+  $("save-status").textContent = "Saved — applying…";
+  newPassword = ""; removePassword = false;
+  original = JSON.stringify(serialize());
+  for (let i = 0; i < 40; i++) {       // the bridge restarts with the new settings
+    await new Promise((r) => setTimeout(r, 750));
+    try { if (i >= 1 && (await fetch("api/state", {cache: "no-store"})).ok) break; } catch (e) { /* restarting */ }
+  }
+  tested = {};
+  await load();
+  $("save").disabled = false;
+  $("save-status").textContent = "✓ Applied";
+  window.scrollTo(0, 0);
+});
+
+window.addEventListener("beforeunload", (e) => {
+  if (cfg && !readOnly && JSON.stringify(serialize()) !== original) { e.preventDefault(); e.returnValue = ""; }
+});
+
+// Live readings for saved devices
+setInterval(async () => {
+  if (!cfg || document.hidden) return;
+  try { live = (await (await fetch("api/state", {cache: "no-store"})).json()).sources || {}; } catch (e) { return; }
+  renderDevices(); updatePreviews();
+}, 3000);
+
+load();
+</script>
+</body>
+</html>

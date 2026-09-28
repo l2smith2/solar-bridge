@@ -15,7 +15,7 @@ import json
 import logging
 from typing import Any
 
-from .base import Source, dig
+from .base import Source, dig, number
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -37,9 +37,10 @@ class MqttSource(Source):
             raise ValueError("needs a 'host'")
         fields = config.get("fields") or {}
         # a bare string is the topic; a mapping may add a JSON path and scale
-        self._fields = {n: s if isinstance(s, dict) else {"topic": str(s)} for n, s in fields.items()}
-        if not self._fields or any("topic" not in s for s in self._fields.values()):
+        self.fields = {n: s if isinstance(s, dict) else {"topic": str(s)} for n, s in fields.items()}
+        if not self.fields or any("topic" not in s for s in self.fields.values()):
             raise ValueError("needs 'fields', each with a topic")
+        self._port = number(config, "port", 1883)
         self._task: asyncio.Task | None = None
 
     async def start(self) -> None:
@@ -54,7 +55,7 @@ class MqttSource(Source):
                 pass
 
     def handle(self, topic: str, payload: bytes | str) -> None:
-        for name, spec in self._fields.items():
+        for name, spec in self.fields.items():
             if spec["topic"] == topic:
                 try:
                     self.set(name, parse_payload(payload, spec.get("path")) * float(spec.get("scale", 1)))
@@ -68,11 +69,11 @@ class MqttSource(Source):
             try:
                 async with aiomqtt.Client(
                     self.config["host"],
-                    port=int(self.config.get("port", 1883)),
-                    username=self.config.get("username"),
-                    password=self.config.get("password"),
+                    port=self._port,
+                    username=self.config.get("username") or None,
+                    password=self.config.get("password") or None,
                 ) as client:
-                    for topic in {s["topic"] for s in self._fields.values()}:
+                    for topic in {s["topic"] for s in self.fields.values()}:
                         await client.subscribe(topic)
                     self.error = None
                     async for message in client.messages:

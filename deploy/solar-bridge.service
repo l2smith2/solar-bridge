@@ -4,7 +4,9 @@ Wants=network-online.target
 After=network-online.target
 
 [Service]
-ExecStart=/opt/solar-bridge/bin/solar-bridge --config /etc/solar-bridge/config.yaml
+# Settings come from the web page (http://<device>/settings). To use a file
+# instead, create /etc/solar-bridge/config.yaml (needs the yaml add-on).
+ExecStart=/opt/solar-bridge/bin/solar-bridge
 Restart=always
 RestartSec=5
 DynamicUser=yes
