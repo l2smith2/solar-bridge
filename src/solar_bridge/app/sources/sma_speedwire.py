@@ -4,7 +4,8 @@
     serial: 3012345678        # optional: which meter, when there are several
     interface: 192.168.1.20   # optional: this device's IP on the meter's network
 
-Readings: grid (+ importing) and grid_l1/l2/l3 per phase, in W. The meters send
+Readings: grid (+ importing) and grid_l1/l2/l3 per phase, in W, and frequency in Hz
+(Energy Meter 2.0 firmware 2.03.4 and later, Home Manager 2.0). The meters send
 them every second to 239.12.255.254:9522 (SMA Speedwire), so there is nothing
 to set up on the meter; it only has to be on the same network.
 """
@@ -27,6 +28,7 @@ GROUP, PORT = "239.12.255.254", 9522
 _METER_DATA = {0x6069: 18, 0x6081: 20}
 # reading → (import, export) measurement indexes; values in 0.1 W
 _POWER = {"grid": (1, 2), "grid_l1": (21, 22), "grid_l2": (41, 42), "grid_l3": (61, 62)}
+_FREQUENCY = 14  # measurement index; value in 0.001 Hz
 
 
 def parse_datagram(data: bytes) -> tuple[int, dict[str, float]] | None:
@@ -58,11 +60,14 @@ def parse_datagram(data: bytes) -> tuple[int, dict[str, float]] | None:
             pos += 8
         else:  # end marker, or something this parser doesn't know the length of
             break
-    return serial, {
+    readings = {
         name: (present[imp] - present[exp]) / 10
         for name, (imp, exp) in _POWER.items()
         if imp in present and exp in present
     }
+    if _FREQUENCY in present:
+        readings["frequency"] = present[_FREQUENCY] / 1000
+    return serial, readings
 
 
 def open_socket(interface: str, port: int) -> socket.socket:
@@ -90,7 +95,7 @@ class _Protocol(asyncio.DatagramProtocol):
 
 
 class SmaSpeedwireSource(Source):
-    READINGS = tuple(_POWER)
+    READINGS = (*_POWER, "frequency")
     push = True
     silence_hint = (
         "nothing heard from an SMA Energy Meter or Sunny Home Manager within 10 s. "

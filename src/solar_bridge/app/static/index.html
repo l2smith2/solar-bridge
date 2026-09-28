@@ -21,6 +21,7 @@
   header { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
   h1 { font-size: 20px; margin: 4px 0 12px; }
   .muted { color: var(--muted); font-size: 13px; }
+  .big { font-size: 20px; font-weight: 600; margin: 4px 0; }
   a { color: var(--home); }
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
   svg { width: 100%; height: auto; display: block; }
@@ -67,6 +68,8 @@
     </svg>
   </section>
 
+  <section class="card" id="offgrid" hidden><h2>Off grid · what the Wattpilot sees</h2>
+    <p class="big" id="og-value"></p><p class="muted" id="og-reason"></p></section>
   <section class="card"><h2>Fronius devices</h2><table id="devices"></table></section>
   <section class="card"><h2>Data sources</h2><table id="sources"></table></section>
 </main>
@@ -90,8 +93,17 @@ function render(s) {
   document.title = (s.name || "Solar Bridge") + " · power flow";
   $("updated").textContent = s.updated ? "updated " + new Date(s.updated).toLocaleTimeString() : "no data yet";
   $("v-pv").textContent = kw(v.pv);
+  const og = s.off_grid;
   $("v-grid").textContent = kw(v.grid == null ? null : Math.abs(v.grid));
-  $("l-grid").textContent = v.grid == null ? "Grid" : v.grid >= 0 ? "Grid · importing" : "Grid · exporting";
+  $("l-grid").textContent = og ? (v.grid == null ? "No generator" : v.grid > 20 ? "Generator · running" : "Generator · off")
+    : v.grid == null ? "Grid" : v.grid >= 0 ? "Grid · importing" : "Grid · exporting";
+  $("offgrid").hidden = !og;
+  if (og) {
+    const g = og.wattpilot_grid;
+    $("og-value").textContent = g == null ? "No data — the Wattpilot pauses"
+      : g < -20 ? `${kw(-g)} surplus for the car` : "No surplus for the car";
+    $("og-reason").textContent = og.reason.charAt(0).toUpperCase() + og.reason.slice(1) + ".";
+  }
   $("v-battery").textContent = kw(v.battery == null ? null : Math.abs(v.battery));
   $("l-battery").textContent = (v.battery == null ? "Battery" : v.battery >= 0 ? "Battery · discharging" : "Battery · charging")
     + (v.soc == null ? "" : " · " + Math.round(v.soc) + "%");

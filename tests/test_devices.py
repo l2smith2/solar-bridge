@@ -50,7 +50,7 @@ async def _bridge_values(tmp_path: Path, src: dict, values: dict) -> dict:
     finally:
         await source.stop()
     assert source.error is None, source.error
-    return bridge.values
+    return {k: v for k, v in bridge.values.items() if k != "frequency"}
 
 
 def _s32(address: int, value: int) -> dict[int, int]:
@@ -161,13 +161,14 @@ async def test_sma_hybrid_at_night(tmp_path: Path, modbus_device) -> None:
 
 
 async def test_sma_battery_and_solar_inverters(modbus_device) -> None:
-    await modbus_device(3, {**_s32(30775, -1800), **_u32(30845, U32_NAN)})
+    await modbus_device(3, {**_s32(30775, -1800), **_u32(30845, U32_NAN), **_u32(30803, 5021)})
     src, _ = _from_template("sma-battery", {"host": "127.0.0.1", "unit": 3})
     source = create_source("sbs", src | {"port": modbus_device.port})
     await source.refresh()
     await source.stop()
     assert source.get("battery") == -1800.0  # AC power: charging
     assert source.get("soc") is None  # not available is missing, not 4294967295 %
+    assert source.get("frequency") == pytest.approx(50.21)  # Sunny Island off grid: raised to hold solar back
 
     src, _ = _from_template("sma-inverter", {"host": "127.0.0.1", "unit": 3})
     source = create_source("sb", src | {"port": modbus_device.port, "unit": "3"})
@@ -190,9 +191,9 @@ def _meter_datagram(serial: int, readings: dict[int, int], protocol: int = 0x606
 
 
 def test_sma_meter_datagrams() -> None:
-    data = _meter_datagram(3012345678, {1: 0, 2: 25000, 21: 0, 22: 8000, 41: 0, 42: 9000, 61: 0, 62: 8000})
-    assert parse_datagram(data) == (
-        3012345678, {"grid": -2500.0, "grid_l1": -800.0, "grid_l2": -900.0, "grid_l3": -800.0})
+    data = _meter_datagram(3012345678, {1: 0, 2: 25000, 14: 50012, 21: 0, 22: 8000, 41: 0, 42: 9000, 61: 0, 62: 8000})
+    assert parse_datagram(data) == (3012345678, {
+        "grid": -2500.0, "grid_l1": -800.0, "grid_l2": -900.0, "grid_l3": -800.0, "frequency": 50.012})
     # Home Manager 2.0 unicast (firmware 2.07): two more header bytes, same readings
     assert parse_datagram(_meter_datagram(7, {1: 12345, 2: 0}, protocol=0x6081)) == (7, {"grid": 1234.5})
     # other Speedwire traffic: discovery, inverter protocol, truncated

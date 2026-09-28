@@ -46,6 +46,15 @@ confirmed on real hardware there).
 - `deploy/` — `install.sh [--tesla] [--yaml]`, systemd unit (CAP_NET_BIND_SERVICE, DynamicUser, StateDirectory),
   optional example YAML. `Dockerfile` (`--build-arg EXTRAS=app,tesla`) needs host networking.
 
+## Off grid (`offgrid.py`)
+- `off_grid.enabled`: grid value optional (= generator / AC input), battery + soc required. The Wattpilot gets
+  P_Grid = generator + battery (charging = export) or, while the battery comes first (SOC hysteresis
+  car_start_soc/car_stop_soc), house load as import; minus offer_w while solar is held back (frequency ≥
+  throttle_hz, default nominal + 0.2; else SOC ≥ full_soc with PV ≥ 200 W). A discharge within 60 s of an offer
+  → no offers for 300 s. P_Akku/SOC are hidden from the Wattpilot (its own battery rules would double count);
+  `values`/meters/energy counters keep the real readings. Untested on a real Wattpilot off grid.
+- `frequency` is a value (Hz) like the others; not allowed as a Smart Meter IP power.
+
 ## Sign conventions
 - Config/`values`/web page use natural signs: grid + importing, pv + producing, battery + discharging, load + consuming.
 - `Bridge.data` is Fronius Solar API: P_Load negated (consumption negative); P_Akku + discharging.

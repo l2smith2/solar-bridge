@@ -83,7 +83,7 @@ Then open `http://<host>/settings`. `--network host` is required for mDNS (and f
 Everything is set in the web page at `/settings`:
 
 1. **Devices** — where readings come from. Pick a template, enter the address, press **Test**.
-2. **What the readings mean** — choose the reading for grid, solar, battery, battery charge and home. Each shows a live description (“exporting to the grid 1.3 kW”, “battery charging 1.6 kW”); tick **Invert** if one is backwards. Home consumption is worked out automatically if you leave it out.
+2. **What the readings mean** — choose the reading for grid, solar, battery, battery charge and home (and optionally AC frequency). Each shows a live description (“exporting to the grid 1.3 kW”, “battery charging 1.6 kW”); tick **Invert** if one is backwards. Home consumption is worked out automatically if you leave it out. [Off grid?](#off-grid-systems) Tick it here.
 3. **Wattpilot & Fronius** — display name, grid phases, main breaker rating, and optional Smart Meter IPs.
 4. **Settings password** — optional; without one, anyone on your network can change the settings.
 
@@ -98,6 +98,15 @@ Add the meter under **Settings → Wattpilot & Fronius → Smart Meter IPs**, ch
 **Example — an AC-coupled battery as an external generator:** add a meter measuring *Battery power* with position *External generator* (unit 241 by default, next to the grid meter on 240).
 
 A meter reports power flowing *from the grid side into the device* as positive, like a real meter wired with the grid on one side: a discharging battery at the generator position reads negative, which Fronius shows as generation. If yours shows backwards, tick the meter's **Invert**.
+
+### Off-grid systems
+
+The Wattpilot's Eco (PV surplus) mode charges from export to the grid, and off grid there is none: spare solar either charges the battery or is held back — the battery inverter raises the AC frequency (or tells the solar inverters) to throttle them. Tick **Off grid** under *What the readings mean* and the Wattpilot is shown a grid made up from your battery instead:
+
+- **Battery charging reads as export**, so the car takes power that would have gone into the battery; **discharging reads as import**, so the car backs off. A **generator** (or other AC input — map it where *Grid power* was) reads as import too, so it never charges the car.
+- **The battery comes first.** Below *Car may charge from* (90 % by default) the car waits; once started it may keep taking surplus until the battery drops below the stop level (80 %).
+- **Held-back solar is offered to the car.** When the AC frequency is above *Solar is held back above* (auto: nominal + 0.2 Hz — map an *AC frequency* reading: the SMA Energy Meter and Sunny Island templates include one, for other devices add it as a reading), or without a frequency reading when the battery is full and solar is producing, a little extra surplus (1500 W) is shown. The Wattpilot steps up, and the battery inverter lets the solar inverters ramp up to cover the car. If the battery starts discharging instead, offers pause for 5 minutes.
+- The battery is hidden from the Wattpilot so its own battery rules don't count the same power twice; use **Eco mode** in the Wattpilot app. The power flow page shows the real values and, in an *Off grid* card, what the Wattpilot is being shown and why.
 
 ---
 

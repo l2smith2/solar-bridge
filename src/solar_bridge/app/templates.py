@@ -120,9 +120,10 @@ TEMPLATES: list[dict[str, Any]] = [
             "fields": {
                 "battery": {"address": 30775, "type": "int32", "input": True, "nan": 0},  # AC power
                 "soc": {"address": 30845, "type": "uint32", "input": True},
+                "frequency": {"address": 30803, "type": "uint32", "input": True, "scale": 0.01},
             },
         },
-        "values": {"battery": "battery", "soc": "soc"},
+        "values": {"battery": "battery", "soc": "soc", "frequency": "frequency"},
         "note": SMA_NOTE + " For grid readings, add the SMA Energy Meter as a device too (under Energy meters).",
     },
     {

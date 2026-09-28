@@ -19,6 +19,7 @@ from aiohttp import web
 
 from ..core import EnergyCounters, ModbusTcpServer, RawMDNSAnnouncer, SolarApiServer, SunSpecMeter
 from .config import Config, MeterConfig
+from .offgrid import OffGridController, OffGridStatus
 from .sources import Source, create_source
 
 _LOGGER = logging.getLogger(__name__)
@@ -62,6 +63,8 @@ class Bridge:
         self.values: dict[str, float | None] = {}  # natural signs, for the web page
         self.data: dict[str, Any] = {}  # Fronius Solar API conventions
         self.meter_data: dict[str, dict[str, Any]] = {m.name: {} for m in meters}
+        self.off_grid = OffGridController(config.off_grid) if config and config.off_grid.enabled else None
+        self.off_grid_status: OffGridStatus | None = None
         self.updated: datetime | None = None
         self.polls: dict[str, dict[str, Any]] = {}  # who polled us, for diagnostics
         self._energy_file = self.data_dir / "energy.json"
@@ -94,12 +97,13 @@ class Bridge:
         if self.config is None:
             return
         cfg = self.config
-        grid, pv, battery, soc, load = (self._value(n) for n in ("grid", "pv", "battery", "soc", "load"))
-        if load is None and grid is not None:
-            load = grid + (pv or 0.0) + (battery or 0.0)  # energy balance
+        grid, pv, battery, soc, load, frequency = (
+            self._value(n) for n in ("grid", "pv", "battery", "soc", "load", "frequency"))
+        if load is None and (grid is not None or (self.off_grid and pv is not None)):
+            load = (grid or 0.0) + (pv or 0.0) + (battery or 0.0)  # energy balance (off grid: grid = generator)
         if soc is not None:
             soc = max(0.0, min(100.0, soc))
-        self.values = {"grid": grid, "pv": pv, "battery": battery, "load": load, "soc": soc}
+        self.values = {"grid": grid, "pv": pv, "battery": battery, "load": load, "soc": soc, "frequency": frequency}
         self.data = {
             "P_Grid": grid,
             "P_PV": pv,
@@ -110,6 +114,16 @@ class Bridge:
             "grid_ct_rating": cfg.breaker_amps,
             **self.energy.update(pv, grid),
         }
+        if self.off_grid:
+            status = self.off_grid_status = self.off_grid.update(battery, soc, grid, pv, load, frequency)
+            # The Wattpilot sees a grid made up from the battery (offgrid.py). The battery itself is
+            # hidden from it, so its own battery rules don't count the same power twice.
+            self.data.update(
+                P_Grid=status.grid,
+                P_Akku=None,
+                SOC=None,
+                P_Load=None if status.grid is None or pv is None else -(status.grid + pv),
+            )
         for meter in cfg.meters:
             power = meter_power(meter, self.values.get(meter.value))
             self.meter_data[meter.name] = {
@@ -171,6 +185,11 @@ class Bridge:
                 for m in (cfg.meters if cfg else [])
             ],
             "wattpilot": bool(cfg and cfg.wattpilot),
+            "off_grid": None if self.off_grid_status is None else {
+                "wattpilot_grid": self.off_grid_status.grid,
+                "state": self.off_grid_status.state,
+                "reason": self.off_grid_status.reason,
+            },
             "clients": {ip: {"path": p["path"], "age_s": self._age(p["at"], now)} for ip, p in self.polls.items()},
             "sources": {n: s.status() for n, s in self.sources.items()},
             "problems": self.problems,

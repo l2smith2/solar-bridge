@@ -13,7 +13,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-VALUE_NAMES = ("grid", "pv", "battery", "soc", "load")
+VALUE_NAMES = ("grid", "pv", "battery", "soc", "load", "frequency")
+POWER_VALUES = ("grid", "pv", "battery", "load")
 METER_ROLES = ("grid", "generator", "load")
 SOURCE_TYPES = ("tesla", "http_json", "mqtt", "modbus", "sma_speedwire")
 _HOSTNAME = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
@@ -42,6 +43,18 @@ class MeterConfig:
 
 
 @dataclass
+class OffGridConfig:
+    """Off-grid: what the Wattpilot is shown in place of a grid (see offgrid.py)."""
+
+    enabled: bool = False
+    car_start_soc: float = 90.0  # the car may use surplus once the battery is this full…
+    car_stop_soc: float = 80.0  # …until it drops below this
+    full_soc: float = 98.0  # without a frequency reading: full battery + solar = solar held back
+    throttle_hz: float | None = None  # solar held back above this; None = nominal + 0.2 Hz
+    offer_w: float = 1500.0  # extra surplus shown while solar is held back
+
+
+@dataclass
 class Config:
     name: str = "fronius-virtual"
     display_name: str | None = None
@@ -56,6 +69,7 @@ class Config:
     sources: dict[str, dict[str, Any]] = field(default_factory=dict)
     values: dict[str, ValueRef] = field(default_factory=dict)
     meters: list[MeterConfig] = field(default_factory=list)
+    off_grid: OffGridConfig = field(default_factory=OffGridConfig)
 
     @property
     def serial(self) -> str:
@@ -105,6 +119,7 @@ def parse(raw: dict[str, Any]) -> Config:
         cfg.breaker_amps = float(grid.get("breaker_amps", 32))
     except (TypeError, ValueError) as err:
         raise ConfigError(f"expected a number: {err}") from err
+    cfg.off_grid = _off_grid(raw.get("off_grid") or {})
     if raw.get("data_dir"):
         cfg.data_dir = Path(raw["data_dir"])
     cfg.wattpilot = bool(raw.get("wattpilot", True))
@@ -137,7 +152,10 @@ def parse(raw: dict[str, Any]) -> Config:
             if source not in sources:
                 raise ConfigError(f"values.{vname}: no device called '{source}'")
         cfg.values[vname] = ref
-    if "grid" not in cfg.values:
+    if cfg.off_grid.enabled:
+        if "battery" not in cfg.values or "soc" not in cfg.values:
+            raise ConfigError("off-grid needs battery power and battery charge (%)")
+    elif "grid" not in cfg.values:
         raise ConfigError("grid power is required — the Wattpilot and Fronius need it")
 
     units: set[int] = set()
@@ -152,7 +170,7 @@ def parse(raw: dict[str, Any]) -> Config:
             )
         except (TypeError, ValueError) as err:
             raise ConfigError(f"meters[{i}]: {err}") from err
-        if meter.value not in cfg.values or meter.value == "soc":
+        if meter.value not in cfg.values or meter.value not in POWER_VALUES:
             raise ConfigError(f"meter '{meter.name}': '{meter.value}' is not a configured power value")
         if meter.role not in METER_ROLES:
             raise ConfigError(f"meter '{meter.name}': role must be one of {', '.join(METER_ROLES)}")
@@ -161,6 +179,25 @@ def parse(raw: dict[str, Any]) -> Config:
         units.add(meter.unit_id)
         cfg.meters.append(meter)
     return cfg
+
+
+def _off_grid(raw: dict[str, Any]) -> OffGridConfig:
+    og = OffGridConfig(enabled=bool(raw.get("enabled", False)))
+    try:
+        for key in ("car_start_soc", "car_stop_soc", "full_soc", "throttle_hz", "offer_w"):
+            if raw.get(key) not in (None, ""):
+                setattr(og, key, float(raw[key]))
+    except (TypeError, ValueError) as err:
+        raise ConfigError(f"off_grid: expected a number: {err}") from err
+    if not 0 <= og.car_stop_soc <= og.car_start_soc <= 100:
+        raise ConfigError("off_grid: the car's stop charge must be at or below its start charge (0–100 %)")
+    if not 50 <= og.full_soc <= 100:
+        raise ConfigError("off_grid: full battery must be 50–100 %")
+    if og.throttle_hz is not None and not 45 <= og.throttle_hz <= 65:
+        raise ConfigError("off_grid: the throttle frequency must be 45–65 Hz")
+    if not 0 <= og.offer_w <= 20000:
+        raise ConfigError("off_grid: the extra surplus offered must be 0–20000 W")
+    return og
 
 
 def read_file(path: str | Path) -> dict[str, Any]:

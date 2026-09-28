@@ -147,6 +147,37 @@ async def test_setup_from_scratch_through_the_web_page(tmp_path: Path, port_fact
     assert set(energy["meters"]) == {"grid", "ac-battery"}
 
 
+async def test_off_grid_end_to_end(tmp_path: Path, port_factory) -> None:
+    async def handler(request: web.Request) -> web.Response:
+        return web.json_response({"solar": 4000.0, "battery": -2500.0, "soc": 95.0})
+
+    device_port, setup_port = port_factory(), port_factory()
+    app = web.Application()
+    app.router.add_get("/", handler)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    await web.TCPSite(runner, "127.0.0.1", device_port).start()
+    try:
+        async with Running(App(tmp_path, None, setup_port), setup_port) as r:
+            await r.save({
+                "name": "cabin", "http_port": setup_port, "wattpilot": False, "update_interval": 1,
+                "sources": {"dev": {"type": "http_json", "url": f"http://127.0.0.1:{device_port}/",
+                                    "fields": {"solar": "solar", "battery": "battery", "soc": "soc"}}},
+                "values": {"pv": "dev.solar", "battery": "dev.battery", "soc": "dev.soc"},
+                "off_grid": {"enabled": True},
+            })
+            await asyncio.sleep(1.2)
+            status, flow = await r.call("GET", "/solar_api/v1/GetPowerFlowRealtimeData.fcgi")
+            site = flow["Body"]["Data"]["Site"]
+            assert (site["P_Grid"], site["P_PV"], site["P_Akku"]) == (-2500.0, 4000.0, None)
+            status, meter = await r.call("GET", "/solar_api/v1/GetMeterRealtimeData.cgi?Scope=Device&DeviceId=0")
+            assert meter["Body"]["Data"]["PowerReal_P_Sum"] == -2500.0
+            status, state = await r.call("GET", "/api/state")
+            assert state["off_grid"]["state"] == "surplus" and state["values"]["grid"] is None
+    finally:
+        await runner.cleanup()
+
+
 async def test_settings_password(tmp_path: Path, port_factory, device) -> None:
     port = port_factory()
     async with Running(App(tmp_path, None, port), port) as r:

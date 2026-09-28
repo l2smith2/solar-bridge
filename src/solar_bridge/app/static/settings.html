@@ -91,6 +91,7 @@
     <section class="card">
       <h2>2 · What the readings mean</h2>
       <p class="muted">Pick the reading for each value and check the live description. If one reads the wrong way round, tick Invert.</p>
+      <div id="offgrid"></div>
       <div id="values"></div>
     </section>
 
@@ -120,7 +121,7 @@
 const $ = (id) => document.getElementById(id);
 // devices with fixed readings (the source's READINGS), rather than a list to fill in
 const FIXED_FIELDS = {tesla: ["grid", "solar", "battery", "load", "soc"],
-                      sma_speedwire: ["grid", "grid_l1", "grid_l2", "grid_l3"]};
+                      sma_speedwire: ["grid", "grid_l1", "grid_l2", "grid_l3", "frequency"]};
 const VALUES = [
   {key: "grid", label: "Grid power", pos: "importing from the grid", neg: "exporting to the grid", required: true},
   {key: "pv", label: "Solar power", pos: "producing", neg: "consuming"},
@@ -128,7 +129,17 @@ const VALUES = [
   {key: "soc", label: "Battery charge", unit: "%"},
   {key: "load", label: "Home consumption", pos: "the home is using", neg: "the home is feeding back",
    hint: "Leave as “not used” to work it out from grid + solar + battery."},
+  {key: "frequency", label: "AC frequency", unit: "Hz", digits: 2,
+   hint: "Optional. Off grid it shows when your battery inverter is holding solar back."},
 ];
+const OFF_GRID_VALUES = {
+  grid: {label: "Generator / AC input", pos: "running, supplying", neg: "taking", required: false,
+         hint: "Optional: a generator or other AC input. Leave as “not used” if you have none."},
+  battery: {required: true}, soc: {required: true},
+  load: {hint: "Leave as “not used” to work it out from generator + solar + battery."},
+};
+// the value list, as it applies to this system
+const valueList = () => VALUES.map((v) => cfg.off_grid.enabled ? {...v, ...(OFF_GRID_VALUES[v.key] || {})} : v);
 const ROLES = [["grid", "Feed-in point (grid meter)"], ["generator", "External generator (e.g. AC battery)"],
                ["load", "Consumption path / subload"]];
 const MODBUS_TYPES = ["int16", "uint16", "int32", "uint32", "float32"];
@@ -242,6 +253,7 @@ async function load() {
     name: raw.name || "fronius-virtual", display_name: raw.display_name || "",
     update_interval: raw.update_interval ?? 5, wattpilot: raw.wattpilot ?? true,
     grid: {phases: 1, breaker_amps: 32, ...(raw.grid || {})},
+    off_grid: {enabled: false, car_start_soc: 90, car_stop_soc: 80, full_soc: 98, offer_w: 1500, ...(raw.off_grid || {})},
     sources: raw.sources || {}, values: {}, meters: raw.meters || [],
     ...(raw.http_port ? {http_port: raw.http_port} : {}), ...(raw.modbus_port ? {modbus_port: raw.modbus_port} : {}),
   };
@@ -259,7 +271,7 @@ async function load() {
   renderAll();
 }
 
-function renderAll() { renderDevices(); renderValues(); renderGeneral(); renderMeters(); renderSecurity(); }
+function renderAll() { renderDevices(); renderOffGrid(); renderValues(); renderGeneral(); renderMeters(); renderSecurity(); }
 
 // ── devices ───────────────────────────────────────────────────────────────
 function renderDevices() {
@@ -485,7 +497,7 @@ function renderValues() {
   previews = {};
   const options = [];
   for (const [s, src] of Object.entries(cfg.sources)) for (const f of fieldNames(src)) options.push(`${s}.${f}`);
-  $("values").replaceChildren(...VALUES.map((meta) => {
+  $("values").replaceChildren(...valueList().map((meta) => {
     const v = cfg.values[meta.key];
     const current = v ? v.from.join(" + ") : "";
     const select = h("select", {onchange: (ev) => {
@@ -505,13 +517,13 @@ function renderValues() {
 }
 
 function updatePreviews() {
-  for (const meta of VALUES) {
+  for (const meta of valueList()) {
     const el = previews[meta.key]; if (!el) continue;
     const v = cfg.values[meta.key], x = valueOf(v);
     let text;
     if (!v) text = meta.hint || (meta.required ? "Required." : "");
     else if (x == null) text = "No reading yet — press Test on the device, or save.";
-    else if (meta.unit) text = `Now: ${Math.round(x)} ${meta.unit}`;
+    else if (meta.unit) text = `Now: ${x.toFixed(meta.digits || 0)} ${meta.unit}`;
     else if (Math.abs(x) < 1) text = "Now: 0 W";
     else text = `Now: ${x >= 0 ? meta.pos : meta.neg} ${kw(x)}`;
     el.textContent = text;
@@ -522,9 +534,32 @@ function updatePreviews() {
 function field(label, input, hint) {
   return h("label", {class: "f"}, h("span", {}, label), input, hint ? h("span", {class: "muted"}, hint) : null);
 }
+const num = (obj, key, attrs = {}) => h("input", {type: "number", value: obj[key] ?? "", ...attrs,
+  oninput: (ev) => { obj[key] = ev.target.value === "" ? undefined : Number(ev.target.value); }});
+
+function renderOffGrid() {
+  const og = cfg.off_grid;
+  const toggle = h("label", {class: "check"}, h("input", {type: "checkbox", checked: og.enabled,
+    onchange: (ev) => { og.enabled = ev.target.checked; renderOffGrid(); renderValues(); renderMeters(); }}),
+    "Off grid — no grid connection");
+  if (!og.enabled) return $("offgrid").replaceChildren(toggle);
+  $("offgrid").replaceChildren(toggle, h("div", {class: "editor"},
+    h("p", {class: "muted", style: "margin-top:0"},
+      "There is no export for the Wattpilot to follow, so it is shown a grid made up from your battery: ",
+      "charging reads as surplus for the car, discharging (or a generator) as import. When your battery inverter ",
+      "holds solar back, a little extra surplus is offered so the car can soak it up. ",
+      "In the Wattpilot app, use Eco mode (PV surplus)."),
+    h("div", {class: "grid2"},
+      field("Car may charge from a battery charge of (%)", num(og, "car_start_soc", {min: 0, max: 100}),
+        "Below this the battery comes first."),
+      field("…until the battery drops below (%)", num(og, "car_stop_soc", {min: 0, max: 100})),
+      field("Solar is held back above (Hz)", num(og, "throttle_hz", {min: 45, max: 65, step: 0.05, placeholder: "auto: 50.2 / 60.2"}),
+        "Needs the AC frequency reading. Without one, a full battery with solar producing counts as held back."),
+      field("Battery counts as full at (%)", num(og, "full_soc", {min: 50, max: 100})),
+      field("Extra surplus offered while solar is held back (W)", num(og, "offer_w", {min: 0, max: 20000, step: 100}),
+        "At least the car's minimum charging power: about 1400 W on one phase, 4200 W on three."))));
+}
 function renderGeneral() {
-  const num = (obj, key, attrs = {}) => h("input", {type: "number", value: obj[key] ?? "", ...attrs,
-    oninput: (ev) => { obj[key] = ev.target.value === "" ? undefined : Number(ev.target.value); }});
   $("general").replaceChildren(
     h("label", {class: "check"}, h("input", {type: "checkbox", checked: cfg.wattpilot,
       onchange: (ev) => { cfg.wattpilot = ev.target.checked; }}), "Pair with a Fronius Wattpilot (announce a virtual inverter)"),
@@ -545,7 +580,7 @@ function renderGeneral() {
 }
 
 function renderMeters() {
-  const powerValues = VALUES.filter((v) => v.key !== "soc");
+  const powerValues = valueList().filter((v) => !v.unit);
   $("meters").replaceChildren(...(cfg.meters.length ? cfg.meters.map((m, i) => h("div", {class: "editor"},
     h("div", {class: "grid2"},
       field("Name", h("input", {value: m.name, oninput: (ev) => { m.name = ev.target.value; }})),

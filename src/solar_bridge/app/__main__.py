@@ -52,13 +52,18 @@ async def check(bridge: Bridge) -> int:
     print("\nValues (grid + importing, battery + discharging, load + consuming):")
     for key, unit in (("grid", "W"), ("pv", "W"), ("battery", "W"), ("load", "W"), ("soc", "%")):
         print(f"  {key:8} {_fmt(v.get(key), unit)}")
+    if v.get("frequency") is not None:
+        print(f"  {'frequency':8} {v['frequency']:.2f} Hz")
     assert bridge.config
     if bridge.config.meters:
         print("\nSmart Meter IPs (+ = from the grid side into the device):")
         for meter in bridge.config.meters:
             power = bridge.meter_data[meter.name].get("P_Grid")
             print(f"  unit {meter.unit_id:3} {meter.name} ({meter.role}): {_fmt(power)}")
-    if v.get("grid") is None:
+    status = bridge.off_grid_status
+    if status is not None:
+        print(f"\nOff grid — the Wattpilot sees grid {_fmt(status.grid)}: {status.reason}")
+    if bridge.data.get("P_Grid") is None:
         print("\n✗ No grid power — the Wattpilot would see P_Grid = null.")
         ok = False
     return 0 if ok else 1

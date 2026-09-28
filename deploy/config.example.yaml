@@ -60,6 +60,17 @@ values:
   soc: powerwall.soc
   load: powerwall.load
 
+# ── Off grid (optional) ─────────────────────────────────────────────────────
+# No grid connection: the Wattpilot is shown the battery as its grid (charging = surplus).
+# Map a generator / AC input as grid if you have one, and optionally frequency (Hz).
+# off_grid:
+#   enabled: true
+#   car_start_soc: 90      # battery first below this…
+#   car_stop_soc: 80       # …and again once it drops below this
+#   throttle_hz: 50.2      # solar held back above this (default: nominal + 0.2 Hz)
+#   full_soc: 98           # without a frequency: full battery + solar producing = held back
+#   offer_w: 1500          # extra surplus shown while solar is held back
+
 # ── Smart Meter IPs for a real Fronius inverter (optional, Modbus TCP) ───────
 # Add each on the Fronius as a Smart Meter IP at this device's IP with the same unit ID.
 # role: grid (feed-in point), generator (e.g. an AC-coupled battery), load (consumption path)
